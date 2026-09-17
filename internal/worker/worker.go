@@ -330,8 +330,10 @@ func (w *Worker) sendReminder(ctx context.Context, deps TenantDeps, payload stri
 		return fmt.Errorf("worker: reminder: parse payload: %w", err)
 	}
 
-	// One query: join bookings → event_types → users (host).
-	// Also load notify_reminder pref and msg_reminder custom note.
+	// One query: join bookings → event_types, and users on the booking's own host.
+	// The host is bookings.host_id (the primary host), not event_types.user_id: on a
+	// round-robin or multi-host event type the owner may not be attending at all.
+	// Also load that host's notify_reminder pref and the msg_reminder custom note.
 	// Skip if booking is deleted or no longer confirmed.
 	var d mailer.BookingData
 	d.BookingID = p.BookingID
@@ -350,7 +352,7 @@ func (w *Worker) sendReminder(ctx context.Context, deps TenantDeps, payload stri
 		       u.name, u.email, COALESCE(u.notify_reminder, 1)
 		FROM bookings b
 		JOIN event_types et ON et.id = b.event_type_id
-		JOIN users u ON u.id = et.user_id
+		JOIN users u ON u.id = b.host_id
 		WHERE b.id = ?`, p.BookingID).
 		Scan(&status, &startAt, &endAt, &locVal, &hostID, &createdAt,
 			&d.EventTypeName, &d.EventTypeSlug, &msgReminder, &subjReminder,

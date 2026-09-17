@@ -31,8 +31,8 @@ Entries below are a mixture, and which is which decides where a patch should go:
   `STT_BASE_URL`, the `booking.reminder` webhook event and sign-out-everywhere are
   ours and are open pull requests upstream, so they may appear in a later upstream
   release under upstream's own wording. So are these fixes, written against upstream
-  and ported here: Microsoft calendars being writable ([#55]) and the booking-page
-  honeypot ([#51]).
+  and ported here: Microsoft calendars being writable ([#55]), the booking-page
+  honeypot ([#51]) and booking emails naming the booking's host ([#50]).
 - **Fork-only, and staying that way.** PostgreSQL support, `MULTI_TENANT` and
   everything under it (the platform API, the signed session hand-off, `ADMIN_SPA`,
   `PLATFORM_RETURN_ORIGINS`, the neutral tenant root), and the
@@ -43,6 +43,7 @@ Entries below are a mixture, and which is which decides where a patch should go:
 
 [#29]: https://github.com/Calnode/calnode/pull/29
 [#31]: https://github.com/Calnode/calnode/pull/31
+[#50]: https://github.com/Calnode/calnode/pull/50
 [#51]: https://github.com/Calnode/calnode/pull/51
 [#55]: https://github.com/Calnode/calnode/pull/55
 
@@ -269,6 +270,27 @@ Entries below are a mixture, and which is which decides where a patch should go:
   posts the value as `company`, so the embed widget and any third-party client keep
   working, and a filled value is still rejected. The embed widget needed no change; its
   honeypot never had a label, name or id.
+
+- **Booking emails name the host a booking was assigned to, not the owner of its event
+  type.** On a round-robin or multi-host event type those are different people, and the
+  owner may not attend at all, but the host was looked up through `event_types.user_id`.
+  Fixes [#48](https://github.com/Calnode/calnode/issues/48), reported with the fix by
+  [@MinosChatzidakis](https://github.com/MinosChatzidakis).
+
+  - The **reminder** told the attendee they were meeting the owner, and was sent or
+    skipped by the owner's `notify_reminder` preference rather than the host's.
+  - The host's **reschedule** notice went to the owner, so the host who was actually
+    attending was never told the meeting had moved. The attendee's reschedule email and
+    its `.ics` organizer named the owner too. This applies to every reschedule path:
+    admin, manage link and MCP.
+  - The **cancellation** and **reassign** emails loaded the owner first and replaced
+    them before sending, so neither was visibly wrong. Both now start from the booking's
+    host, and reassign no longer needs its own second lookup.
+  - The **manage page** named the owner in the one case where it could not read the
+    booking's hosts; it now names the booking's primary host there too. This part is
+    fork-only.
+
+  An event type whose owner is also its only host is unaffected.
 
 ## [0.9.0] - 2026-09-10
 
