@@ -54,6 +54,21 @@ func newDAVServer(t *testing.T, user, pass string) *davServer {
 			w.WriteHeader(http.StatusCreated)
 		case http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
+		case "PROPFIND":
+			// Saving a CalDAV selection lists the account's calendars first (ValidateSelection).
+			// No principal is reported, so the listing falls back to the bound collection's
+			// parent, where a Depth 1 PROPFIND finds two event calendars, home/ and work/.
+			if r.Header.Get("Depth") != "1" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			dir := strings.TrimRight(r.URL.Path, "/") + "/"
+			w.WriteHeader(http.StatusMultiStatus)
+			io.WriteString(w, msOpen+
+				okResponse(dir, `<d:resourcetype><d:collection/></d:resourcetype>`)+
+				okResponse(dir+"home/", calendarProps("Home", vevent, ""))+
+				okResponse(dir+"work/", calendarProps("Work", vevent, ""))+
+				`</d:multistatus>`)
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
