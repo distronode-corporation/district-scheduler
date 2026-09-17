@@ -18,6 +18,18 @@ name: Docker publish
 #
 # Pin a deployment to `:sha-<short>`, never to `:dev` or `:edge` — those move under
 # you, and then nothing records which commit an instance is actually running.
+#
+# Every image this workflow PUSHES also gets a signed GitHub build provenance
+# attestation over the digest that gets pinned, so a deployment can prove not just
+# which bytes it runs but which workflow run, on which commit, produced them:
+#
+#   gh attestation verify oci://ghcr.io/distronode-corporation/district-scheduler@sha256:… \
+#     --repo distronode-corporation/district-scheduler
+#
+# BuildKit already attaches its own provenance manifest to the index (the two
+# `attestation-manifest` entries beside the amd64 and arm64 manifests). That one is
+# unsigned and says only what BuildKit saw; this one is Sigstore-signed and is what
+# `gh attestation verify` reads.
 on:
   push:
     branches: [district, dev]
@@ -45,6 +57,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Both only for the provenance attestation below: id-token to get the OIDC
+      # token Sigstore signs against, attestations to store the result.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -80,6 +96,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Build (push on branch pushes and on tags)
+        id: push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
@@ -91,6 +108,21 @@ jobs:
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
             COMMIT=${{ github.sha }}
+
+      # `steps.push.outputs.digest` is buildx's `containerimage.digest`, and for a
+      # multi-arch `--push` build that is the digest of the image INDEX, not of either
+      # per-arch manifest. That matters: the index digest is what `crane digest
+      # ghcr.io/…:sha-<short>` returns, and therefore the digest a deployment pins, so it
+      # is the only one `gh attestation verify` on a pinned reference can find.
+      #
+      # Same condition as the GHCR login: on a pull request nothing is pushed, buildx
+      # sets no `containerimage.digest`, and the action would be handed an empty subject.
+      - name: Attest build provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
 
   release:
     # Only on a version tag, and only once the image built + pushed.
