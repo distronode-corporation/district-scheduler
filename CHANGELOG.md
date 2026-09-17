@@ -11,6 +11,23 @@ exact tag (`ghcr.io/calnode/calnode:0.1.0`) if you need stability between upgrad
 
 ## [Unreleased]
 
+### Security
+- **Archiving a member now ends their MCP access.** An MCP client connected through
+  OAuth kept working after its member was archived: `VerifyMCPBearer` checked an OAuth
+  bearer's expiry but not whether its member was archived, although the API-key path,
+  the session path and the MCP API-key fallback all did. The OAuth path now refuses an
+  archived member's token the same way.
+
+  Archive also deletes the member's sessions, MCP OAuth tokens (access and refresh) and
+  pending OAuth authorization codes, in the same transaction. Before this, restoring a
+  member brought all of them back: a signed-in browser, the agent's access token, and a
+  refresh token that could still mint new ones. Now a restored member signs in again and
+  reconnects any agent. API keys are kept as before: refused while archived, working
+  again after restore.
+
+  Found by the maintainer while reviewing
+  [#41](https://github.com/Calnode/calnode/pull/41).
+
 ## [0.9.0] - 2026-09-10
 
 ### Added

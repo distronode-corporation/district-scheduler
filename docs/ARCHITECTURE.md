@@ -191,6 +191,9 @@ the platform/recovery secret doesn't expose secrets.
   lists, skipped in routing/slots, event types deactivated. Reversible (restore).
   Archiving is blocked while the member has upcoming (primary-host) bookings; a
   resolve-meetings flow makes the admin reassign/cancel each first.
+  Archive ends the member's sessions, MCP OAuth tokens (access and refresh) and pending
+  authorization codes, so restore brings back neither a signed-in browser nor a
+  connected agent; API keys are kept, refused while archived and valid again on restore.
 
 ---
 

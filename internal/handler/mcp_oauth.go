@@ -99,10 +99,13 @@ func (h *Handler) MCPCallerMiddleware(next http.Handler) http.Handler {
 func (h *Handler) VerifyMCPBearer(ctx context.Context, token string, _ *http.Request) (*auth.TokenInfo, error) {
 	hash := hashAPIKey(token)
 
-	// OAuth access token?
+	// OAuth access token? Only for a member who is not archived, exactly as the API-key
+	// fallback below, RequireAuth's key path and its session path all require. ArchiveUser
+	// also deletes the member's tokens; this check does not rely on that.
 	var userID, expiresAt string
-	err := h.db.QueryRowContext(ctx,
-		`SELECT user_id, expires_at FROM oauth_access_tokens WHERE token_hash = ?`, hash).
+	err := h.db.QueryRowContext(ctx, `
+		SELECT t.user_id, t.expires_at FROM oauth_access_tokens t JOIN users u ON u.id = t.user_id
+		WHERE t.token_hash = ? AND u.archived_at IS NULL`, hash).
 		Scan(&userID, &expiresAt)
 	if err == nil {
 		exp, _ := time.Parse(time.RFC3339, expiresAt)

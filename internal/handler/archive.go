@@ -12,7 +12,8 @@ import (
 // Archiving is the offboarding path (soft-delete): the user row and all its
 // links are preserved, but the member can no longer log in, is hidden from the
 // default member list, is skipped in routing, and their event types are
-// deactivated. Reversible via RestoreUser.
+// deactivated. Their sessions, MCP OAuth tokens and pending OAuth authorization
+// codes are deleted; their API keys are kept. Reversible via RestoreUser.
 //
 // Guards mirror removal: cannot archive the owner (transfer first) or yourself;
 // only the owner may archive an admin; archiving is blocked (409) while the
@@ -94,6 +95,24 @@ func (h *Handler) ArchiveUser(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	// End the member's signed-in browsers and connected agents. While they are archived,
+	// archived_at alone already stops a session or an OAuth bearer authenticating
+	// (RequireAuth, VerifyMCPBearer); these rows would come back to life on restore,
+	// which is why they are deleted. An oauth_access_tokens row holds both the access
+	// and the refresh token, and an authorization code minted just before the archive
+	// could otherwise still be exchanged for a fresh row.
+	// API keys are deliberately kept: refused while archived, valid again on restore.
+	for _, q := range []struct{ what, sql string }{
+		{"delete sessions", `DELETE FROM sessions WHERE user_id = ?`},
+		{"delete oauth tokens", `DELETE FROM oauth_access_tokens WHERE user_id = ?`},
+		{"delete oauth codes", `DELETE FROM oauth_auth_codes WHERE user_id = ?`},
+	} {
+		if _, err := tx.ExecContext(r.Context(), q.sql, targetID); err != nil {
+			h.logger.ErrorContext(r.Context(), "archive user: "+q.what, "error", err)
+			h.writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		h.logger.ErrorContext(r.Context(), "archive user: commit", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal error")
@@ -105,7 +124,9 @@ func (h *Handler) ArchiveUser(w http.ResponseWriter, r *http.Request) {
 // RestoreUser handles POST /v1/users/{id}/restore — admin only (owner required
 // to restore an archived admin, mirroring archive). Clears archived_at so the
 // member can log in again. Event types are NOT auto-reactivated — the admin
-// re-enables any that should go live again.
+// re-enables any that should go live again. Nothing archive deleted comes back:
+// the member signs in afresh and reconnects any MCP client. Their API keys, which
+// archive keeps, authenticate again.
 func (h *Handler) RestoreUser(w http.ResponseWriter, r *http.Request) {
 	actor, ok := userFromContext(r.Context())
 	if !ok || !actor.IsAdmin {
