@@ -127,10 +127,19 @@ func (h *Handler) VerifyMCPBearer(ctx context.Context, token string, _ *http.Req
 	// is on the identity host so there is no workspace bound at all: every valid
 	// token would be reported Unauthorized.
 
-	// OAuth access token?
+	// OAuth access token? Archived users authenticate with nothing: the session
+	// path (auth.go) and both API-key paths (below, and auth.go) already filter
+	// on users.archived_at, and without the same check here an archived member's
+	// connected agent bearer would keep validating after offboarding.
+	//
+	// The join is on users.id alone, like the API-key fallback below: user ids are
+	// global primary keys, so it cannot reach a same-id user in another workspace,
+	// and the platform handle has no policy to scope it anyway.
 	var userID, expiresAt string
-	err := h.platformDB().QueryRowContext(ctx,
-		`SELECT user_id, expires_at FROM oauth_access_tokens WHERE token_hash = ?`, hash).
+	err := h.platformDB().QueryRowContext(ctx, `
+		SELECT t.user_id, t.expires_at FROM oauth_access_tokens t
+		JOIN users u ON u.id = t.user_id
+		WHERE t.token_hash = ? AND u.archived_at IS NULL`, hash).
 		Scan(&userID, &expiresAt)
 	if err == nil {
 		exp, _ := time.Parse(time.RFC3339, expiresAt)

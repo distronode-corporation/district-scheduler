@@ -38,7 +38,7 @@ Or build it yourself with `docker build -t calnode .`.
 
 Everything in this guide applies to both images unless a section says otherwise:
 the binary is the same binary, and the image only decides which engine it is
-configured to reach. §1 has the variables, §10 has the multi-tenant ones, and
+configured to reach. §1 has the variables, §11 has the multi-tenant ones, and
 [docs/MULTI_TENANT.md](docs/MULTI_TENANT.md) is the contract for that mode.
 
 This guide covers a generic Docker deploy and a step-by-step **Railway** deploy
@@ -55,13 +55,13 @@ This guide covers a generic Docker deploy and a step-by-step **Railway** deploy
 | `CALNODE_SSO_SHARED_SECRET` | no | — | HMAC key for the signed session hand-off (`GET /v1/auth/sso`). Unset ⇒ that endpoint **404s**. Anything holding this secret can mint a session and create a user, so treat it like the encryption key: `openssl rand -hex 32`, env only, never in the admin UI. |
 | `METRICS_TOKEN` | no | — | Bearer token for `GET /metrics` (Prometheus text exposition). Unset ⇒ that endpoint **404s**, so an instance never publishes its request volume, booking rate or queue depth by accident. Scrape with `Authorization: Bearer $METRICS_TOKEN`; a wrong token gets the same 404 as an unconfigured one. |
 | `METRICS_ALLOW_UNAUTHENTICATED_FROM` | no | — | Comma-separated CIDRs whose requests may scrape `GET /metrics` with **no** bearer, for a collector that cannot hold a per-target secret. ⛔ Matched against the **TCP peer**, never a forwarded header, because here the address *is* the credential. So the endpoint must not be reachable through a proxy inside the allowed range. Empty ⇒ off, and the bearer is the only way in. |
-| `ADMIN_SPA` | no | `on` | `off` answers **404** on `GET /admin`, `GET /admin/` and everything under it, so a platform whose own console already has every admin surface does not ship a second one on each tenant host. ⛔ **Honoured only in multi-tenant mode**: a self-hoster has no other admin UI, so `off` on a single-tenant instance is ignored and said so at boot rather than locking the operator out. Values are `on` and `off` only; `true`/`false` are refused at boot, because the fallback is `on` and a value nobody can read exactly would serve the console the operator wrote the variable to remove. See §10 for what the bare root serves with it off. |
+| `ADMIN_SPA` | no | `on` | `off` answers **404** on `GET /admin`, `GET /admin/` and everything under it, so a platform whose own console already has every admin surface does not ship a second one on each tenant host. ⛔ **Honoured only in multi-tenant mode**: a self-hoster has no other admin UI, so `off` on a single-tenant instance is ignored and said so at boot rather than locking the operator out. Values are `on` and `off` only; `true`/`false` are refused at boot, because the fallback is `on` and a value nobody can read exactly would serve the console the operator wrote the variable to remove. See §11 for what the bare root serves with it off. |
 | `PLATFORM_RETURN_ORIGINS` | no | — | Comma-separated origins that `GET /v1/calendar/connect?provider=…&return_to=…` may finish the OAuth round trip on, so a platform that replaced the admin SPA with its own pages can land the person back on its own console. Each entry is `scheme://host[:port]` with no path, query or fragment, `https` unless the host is `localhost`/`127.0.0.1`, and **a malformed one is fatal at boot** rather than a silently dead allowlist. Empty ⇒ a `return_to` is a **400**, not a no-op, so a platform pointed at an instance nobody configured for it finds out on the first attempt. The match is the whole origin byte for byte: a prefix match would accept `https://console.example.com.evil.test`, and an open redirect out of an OAuth callback is a better prize than most bugs in a scheduler. |
 | `CALNODE_PLATFORM_TOKEN` | no | — | Bearer for `/v1/platform/*`, compared in constant time. Unset, or on a single-tenant instance, every one of those routes **404s** rather than 401ing, so a prober cannot tell a control plane from an instance that has none. A wrong token is 401. |
 | `BASE_URL` | **yes (prod)** | `http://localhost:3000` | Identity host — admin UI, OAuth callbacks, invite links. **Must include the scheme** (`https://booking.example.com`). The `https://` prefix flips the app into production mode (secure cookies, encryption-key enforcement). |
 | `PUBLIC_BASE_URL` | no | = `BASE_URL` | Booker-facing host for booking links/emails, if different from the identity host. |
 | `DATABASE_URL` | no | `sqlite://./data/calnode.db` | Point at the persistent volume, e.g. `sqlite:///data/calnode.db`. A `postgres://user:pass@host:5432/dbname` URL selects PostgreSQL instead; anything else is SQLite. In multi-tenant mode this is the **application** role. |
-| `MULTI_TENANT` | no | off | Turns on multi-tenant mode: one process, many isolated workspaces, PostgreSQL row-level security as the boundary. ⚠️ Parsed as a Go boolean, so use `1` or `true`: a value `strconv.ParseBool` cannot read falls back to **off**, silently. Everything this mode adds is in §10. |
+| `MULTI_TENANT` | no | off | Turns on multi-tenant mode: one process, many isolated workspaces, PostgreSQL row-level security as the boundary. ⚠️ Parsed as a Go boolean, so use `1` or `true`: a value `strconv.ParseBool` cannot read falls back to **off**, silently. Everything this mode adds is in §11. |
 | `DATABASE_ADMIN_URL` | **multi-tenant: yes** | — | The **platform** role's DSN: schema owner, `BYPASSRLS`, used for migrations, RLS setup, the worker's cross-tenant claim loop and the platform API. ⛔ Must be a different role from `DATABASE_URL`, and startup refuses them being the same: one role means the policies are inert against the application and nothing appears broken. |
 | `DB_MAX_OPEN_CONNS` | no | `10` | **PostgreSQL only.** Size of the connection pool. It has to fit inside the server's own `max_connections`, shared with every other client — raise it for a busy instance on a well-sized server, lower it behind PgBouncer or on a shared one. Must be a positive integer; anything else is ignored (with a warning) and the default stands. **Ignored on SQLite, which is always 1**: the single connection is what serialises write transactions, not a tuning choice. |
 | `DB_MAX_IDLE_CONNS` | no | `5` | **PostgreSQL only.** How many idle connections the pool keeps rather than closing. Positive integer, and capped at `DB_MAX_OPEN_CONNS` (a larger value is clamped, since `database/sql` would silently do the same). |
@@ -73,7 +73,7 @@ This guide covers a generic Docker deploy and a step-by-step **Railway** deploy
 | `LITESTREAM_REPLICA_URL` | recommended | — | Enables continuous SQLite backup (see §6). |
 | `COOKIE_SECURE` | no | https→true | Override cookie Secure flag; defaults from `BASE_URL` scheme. |
 | `TRUSTED_PROXY_CIDRS` | no | — | Comma-separated CIDRs (a bare address = one host) whose `X-Forwarded-For` is believed when keying per-IP rate limits, e.g. `10.0.0.0/8`. Include a fronting CDN's own ranges so the walk steps over its edge and lands on the visitor. Unset ⇒ the header is ignored and the limit keys on the TCP peer, so behind a CDN every visitor shares one bucket. **Only list networks you control**: anything in the list can name any client IP it likes. Single-value vendor headers (`CF-Connecting-IP`, `X-Real-IP`) are never read, from any peer. |
-| `FRAME_ANCESTORS` | no | — | **Space**-separated origins allowed to embed the **admin UI** in a frame, e.g. `https://console.example.com 'self'`. Each entry must be `https://host[:port]` or `'self'` — anything else and **the app refuses to start**, because browsers drop a policy they cannot parse. Does not affect the public booking pages, which always deny framing. |
+| `FRAME_ANCESTORS` | no | — | **Space**-separated origins allowed to embed the **admin UI** in a frame, e.g. `https://console.example.com 'self'`. Each entry must be `https://host[:port]` or `'self'` — anything else and **the app refuses to start**, because browsers drop a policy they cannot parse. Does not affect the public booking pages, which always deny framing. ⛔ **Same-site only in practice**: `calnode_session` is `SameSite=Lax`, so a cross-site parent can frame `/admin/` and still never be sent the cookie — it gets the login screen inside the frame. Use `'self'` or a host sharing `BASE_URL`'s registrable domain (in multi-tenant mode, the workspace's `public_host`, which is where the console and its cookie live). |
 | `LOG_LEVEL` | no | `info` | `debug`/`info`/`warn`/`error`. |
 | `STT_BASE_URL` | no | `https://api.deepgram.com` | Speech-to-text endpoint **host** for meeting transcription, e.g. a regional endpoint so recording audio stays in one jurisdiction. Host only — the path, model and options are fixed. Shown read-only in Settings → Notetaker as `stt_base_url`. |
 
@@ -83,7 +83,7 @@ This guide covers a generic Docker deploy and a step-by-step **Railway** deploy
 
 ## 2. Generic Docker
 
-This fork's image, multi-tenant (see §10 for the variables):
+This fork's image, multi-tenant (see §11 for the variables):
 
 ```bash
 docker run -d -p 3000:3000 \
@@ -356,7 +356,41 @@ Full setup guide, including recording consent, the AI notetaker, and host contro
 
 ---
 
-## 8. First run
+## 8. Zoom meeting links
+
+Optional. With a Zoom app configured in **Settings → Zoom**, each host connects their own
+Zoom account (Calendar page) and a Zoom-located booking gets a meeting minted under the
+assigned host's account. The settings page shows the exact **Redirect URL** to register
+(`https://<your-domain>/v1/zoom/callback`).
+
+**Who can connect depends on how the Zoom app is distributed, and that is Zoom's rule,
+not this app's.** A Zoom **General app** that is not published to the Zoom App Marketplace
+can only be authorized by users inside the Zoom account that created it. A member who signs
+in with their own, separate Zoom account is refused by Zoom before the request ever reaches
+the scheduler (they land on a Marketplace "Something went wrong" page). Zoom offers three
+ways around that, none of them a setting here:
+
+- **Bring the hosts into your Zoom account.** Members of the app's own Zoom account can
+  connect an unpublished app. Joining puts their Zoom user under your account's
+  administration and licensing, so this suits a team that already shares one Zoom
+  account, not independent people.
+- **Beta sharing.** On request, Zoom's review team can approve an authorization URL for
+  users outside your account: up to 100 of them for a user-level app, valid for 4 weeks
+  with two further 4-week extensions. It is a test channel, not a permanent one.
+- **Publish the app** to the Zoom App Marketplace, which requires passing Zoom's app
+  review.
+
+Details: Zoom's [App distribution](https://developers.zoom.us/docs/distribute/) and
+[Sharing private and beta apps](https://developers.zoom.us/docs/distribute/sharing-private-and-beta-apps/).
+
+If none of those fits, a Zoom-located event type still works without any Zoom app: set a
+**Zoom link** on the event type and every booking carries that link (one link per event
+type, so it suits a personal meeting room rather than a rotation of hosts). The built-in
+video rooms (§7) need no per-host account at all.
+
+---
+
+## 9. First run
 
 Open `https://<your-domain>/` → it redirects to `/admin/`. On a fresh database
 you'll be guided through **first-run setup** (create the owner account). Then:
@@ -365,7 +399,7 @@ first event type + availability.
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Symptom | Likely cause |
 |---|---|
@@ -374,13 +408,14 @@ first event type + availability.
 | `ERR_CERT_COMMON_NAME_INVALID` on a new domain | Cert not issued yet — wait; ensure the DNS record is **DNS-only**, not proxied. |
 | 403 on admin actions behind a proxy | Proxy not forwarding the original `Host` header (CSRF same-origin check). |
 | OAuth `redirect_uri_mismatch` | Registered URI doesn't match `BASE_URL` + `/v1/...callback` exactly. |
+| Connecting Zoom works for you but a member lands on Zoom's "Something went wrong" page | The Zoom app is unpublished and the member's Zoom account is not in the account that owns it (§8). |
 | Email `550 domain not verified` | From address domain isn't verified with your email provider. |
 | Logo broken in email when testing locally | Gmail's image proxy can't reach `localhost` — only loads from a public URL. |
 | Litestream `InvalidAccessKeyId` / 403, log shows `endpoint=""` | `LITESTREAM_ENDPOINT` unset (or the running build predates the endpoint/region config) → Litestream defaults to AWS. Set the **account** endpoint (no bucket) + `region=auto` for R2, and redeploy so the config is live. |
 
 ---
 
-## 10. Multi-tenant mode (this fork)
+## 11. Multi-tenant mode (this fork)
 
 `MULTI_TENANT` turns one process into a host for many isolated workspaces. Read
 **[docs/MULTI_TENANT.md](docs/MULTI_TENANT.md)** before deploying it: what follows is

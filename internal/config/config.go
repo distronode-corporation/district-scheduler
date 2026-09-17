@@ -171,6 +171,18 @@ type Config struct {
 	// `frame-ancestors 'none'` + `X-Frame-Options: DENY` unconditionally — those are
 	// unauthenticated pages that take payment details, and no operator convenience is
 	// worth making them embeddable.
+	//
+	// ⛔ Permitting the frame is not the same as making it work, and this setting is only
+	// the first half. calnode_session is SameSite=Lax, so a browser withholds it from a
+	// subresource request made by a CROSS-SITE parent: an operator who lists a console on
+	// an unrelated registrable domain gets the frame they asked for and a login screen
+	// inside it, with nothing in the response explaining why. Same-site parents ('self',
+	// or a host under BASE_URL's registrable domain) are the working case. The fix would
+	// be SameSite=None on the session cookie, which withdraws the CSRF protection Lax
+	// gives every other route, so it is not on offer here.
+	//
+	// In multi-tenant mode the console and its cookie live on each workspace's
+	// public_host rather than on BASE_URL, so "same-site" is measured against that host.
 	FrameAncestors []string
 
 	// PlatformReturnOrigins lists the origins a platform console may ask an OAuth round

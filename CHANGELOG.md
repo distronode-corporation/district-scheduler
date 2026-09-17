@@ -23,14 +23,16 @@ point at which the API and schema are declared stable.
 Entries below are a mixture, and which is which decides where a patch should go:
 
 - **Fork-authored, merged upstream.** Written here, sent upstream, and merged there,
-  so they also appear in upstream's own `[0.9.0]`. Listed once, here, because on this
+  so they also appear in upstream's own changelog. Listed once, here, because on this
   branch they have never been in a tagged release: duplicating an event type, the
   empty-day and minimum-notice explanations, `TRUSTED_PROXY_CIDRS`, constraint
-  violations by error code, and the event-type creation fixes.
-- **Fork-authored, pending upstream.** `fr-CA`, `GET /metrics`, `FRAME_ANCESTORS`,
-  `STT_BASE_URL`, the `booking.reminder` webhook event and sign-out-everywhere are
-  ours and are open pull requests upstream, so they may appear in a later upstream
-  release under upstream's own wording.
+  violations by error code, and the event-type creation fixes (all in upstream's
+  `[0.9.0]`), plus `FRAME_ANCESTORS` ([#40]) and the Zoom setup text ([#52]), which
+  merged upstream after 0.9.0 was tagged.
+- **Fork-authored, pending upstream.** `fr-CA`, `GET /metrics`, `STT_BASE_URL`, the
+  `booking.reminder` webhook event and sign-out-everywhere are ours and are open pull
+  requests upstream, so they may appear in a later upstream release under upstream's
+  own wording.
 - **Fork-only, and staying that way.** PostgreSQL support, `MULTI_TENANT` and
   everything under it (the platform API, the signed session hand-off, `ADMIN_SPA`,
   `PLATFORM_RETURN_ORIGINS`, the neutral tenant root), and the
@@ -41,6 +43,8 @@ Entries below are a mixture, and which is which decides where a patch should go:
 
 [#29]: https://github.com/Calnode/calnode/pull/29
 [#31]: https://github.com/Calnode/calnode/pull/31
+[#40]: https://github.com/Calnode/calnode/pull/40
+[#52]: https://github.com/Calnode/calnode/pull/52
 
 ### Security
 - **A booker's email address is validated where it enters, and is never written into an
@@ -66,6 +70,18 @@ Entries below are a mixture, and which is which decides where a patch should go:
   parsed bare address, so a pasted `Bob <bob@example.com>` is recorded as
   `bob@example.com` - a small deliberate behaviour change, matching what the hourly
   throttle, the per-invitee cap and the `To:` header already assume they hold.
+
+- **Archiving a member ends their connected agent's access.** Sessions and API keys
+  already stopped authenticating the moment a member was archived, but an MCP OAuth
+  bearer did not, so an agent the member had connected kept working after they were
+  offboarded, and the refresh grant would mint it a fresh pair. `/mcp` now refuses an
+  OAuth bearer whose user is archived, and `POST /oauth/token` refuses to refresh one.
+  Nothing is deleted by an ordinary archive, so restoring the member brings back a
+  connection that has not expired; the platform's own archive route
+  (`POST /v1/platform/workspaces/{id}/users/{uid}/archive`) still deletes the tokens
+  outright, as before. From upstream
+  ([#49](https://github.com/Calnode/calnode/pull/49)), which shipped it without a
+  changelog entry.
 
 ### Added
 - **Canadian French (`fr-CA`) on the booker-facing surfaces.** A visitor whose browser asks
@@ -243,31 +259,49 @@ Entries below are a mixture, and which is which decides where a patch should go:
   checked before anything is written, so a value the editor would reject is answered 400
   with the reason rather than provisioned and discovered later.
 
+- **The Zoom setup text no longer promises that an unpublished app works for "your own
+  team".** Zoom only lets users inside the Zoom account that owns an unpublished app
+  authorize it, so a member with their own Zoom account was refused on a Zoom error page
+  that Calnode never sees. Settings → Zoom now says so, and `DEPLOY.md` gains a Zoom
+  section with Zoom's three ways around it (same account, beta sharing, publishing) and
+  the link-only fallback that needs no Zoom app. Answers
+  [#35](https://github.com/Calnode/calnode/issues/35).
+
 ## [0.9.0] - 2026-09-10
 
-**Upstream's release, recorded here for alignment rather than reproduced.** Five of
-its entries were authored on this fork, sent upstream and merged there, so they are
-already written out under `[Unreleased]` above and are not repeated: duplicating an
-event type ([#17]), the empty-day and minimum-notice explanations ([#20]),
-constraint violations recognised by error code, `TRUSTED_PROXY_CIDRS`, and the
-event-type creation fixes. Read
-[upstream's 0.9.0](https://github.com/Calnode/calnode/blob/main/CHANGELOG.md) for
-its own wording.
+**Upstream's release.** Five of its entries were authored on this fork, sent upstream
+and merged there, so they are already written out under `[Unreleased]` above and are
+not repeated: duplicating an event type ([#17]), the empty-day and minimum-notice
+explanations ([#20]), constraint violations recognised by error code,
+`TRUSTED_PROXY_CIDRS`, and the event-type creation fixes. The entries below are the
+rest of it, which were upstream's own and reached this fork with the sync that merged
+upstream `eb04dca`.
 
-⚠️ **Two of upstream's 0.9.0 changes are NOT in this fork yet**, and they are the
-whole reason this section says something rather than nothing:
+⚠️ **Upstream's copy of this section also lists `FRAME_ANCESTORS`, and it is not part
+of 0.9.0.** It merged upstream a week after `v0.9.0` was tagged (the tag's own
+`CHANGELOG.md` does not mention it), from a branch whose entry sat under `[Unreleased]`
+before the release heading existed, and the merge carried it into the released section.
+It is under `[Unreleased]` here.
 
-- **An event type's booking link can be renamed until its first booking.** Upstream's
-  `PATCH /v1/event-types/{slug}` accepts `slug` and refuses with 409 once bookings
-  exist. This fork's `PatchEventType` does not accept the field, so a duplicate
-  arrives as `<slug>-copy` and there is no way to rename it short of deleting and
-  recreating it.
-- **`BookingLogic.bookableDayKeys` and `book.html`'s `bookableDates` were removed**
-  upstream as dead code. Both are still present here.
+### Fixed
+- **An event type's booking link can be renamed until its first booking.** `PATCH
+  /v1/event-types/{slug}` now accepts `slug`, and the editor exposes it as "Booking link".
+  Refused with 409 once bookings exist, because by then the link is in circulation and
+  somebody's manage link resolves through it. Mainly this is what makes a duplicate
+  usable: it arrives as `<slug>-copy` and there was previously no way to give it a real
+  name short of deleting and recreating it.
 
-Neither is a divergence anybody decided on: they are the sync gap from a release that
-landed while this fork was on its own branch. Closing it is the 0.9.0 sync, tracked
-separately.
+- **The empty-day and minimum-notice explanations, finished.** The empty-day message
+  keeps its call to action as well as naming the day ("No available times on Monday, 14
+  September. Try another date."), in all eight locales (and in `fr-CA` on this fork); the
+  minimum-notice line gets its own `.notice-hint` style, a shade darker than the
+  placeholder text it used to be indistinguishable from; and the notice gap is now
+  computed only for callers that asked for it, so the MCP tool and the booking assistant
+  stop paying for a presentation aid they never render.
+
+### Removed
+- `BookingLogic.bookableDayKeys` and `book.html`'s `bookableDates`, which were written in
+  0.8.0 and never read by anything.
 
 [#17]: https://github.com/Calnode/calnode/issues/17
 [#20]: https://github.com/Calnode/calnode/issues/20

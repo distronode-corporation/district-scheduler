@@ -346,6 +346,10 @@ the platform/recovery secret doesn't expose secrets.
 - **Offboarding = archive** (`users.archived_at`), never hard-delete — preserves
   bookings, event-type ownership, team links. Archived ⇒ no login, hidden from
   lists, skipped in routing/slots, event types deactivated. Reversible (restore).
+  "No login" holds on every auth path: sessions, API keys, and MCP OAuth bearers
+  all filter on `archived_at`, and refresh grants are refused for archived users
+  too — so archiving ends a member's agent access and leaves no usable
+  credential material behind.
   Archiving is blocked while the member has upcoming (primary-host) bookings; a
   resolve-meetings flow makes the admin reassign/cancel each first.
 
@@ -986,6 +990,16 @@ as the desired state:
    An entry that isn't `https://host[:port]` or `'self'` fails `config.Validate()` and the
    process **refuses to start** — a browser drops a source list it cannot parse, so a
    typo would otherwise leave `/admin/` more embeddable than with the setting unset.
+   ⛔ **The CSP is only half of what an embed needs, and the other half is not
+   configurable.** `calnode_session` is `SameSite=Lax` (`session.go`), so a browser does
+   not send it on a subresource request from a **cross-site** parent. A console on an
+   unrelated eTLD+1 may therefore frame `/admin/` after this setting and still get the
+   login screen inside the frame, forever — the header permits the embed and the cookie
+   declines to authenticate it. Working embeds are same-site: `'self'`, or a parent
+   sharing `BASE_URL`'s registrable domain (in multi-tenant mode, the workspace's
+   `public_host`, which is where `/admin/` and its cookie live). Relaxing that means `SameSite=None; Secure`
+   on the session cookie, which removes the CSRF protection the `Lax` default provides
+   for every other route, so it is deliberately not offered as a setting.
 
 ---
 
