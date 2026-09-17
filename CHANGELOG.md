@@ -359,6 +359,15 @@ Entries below are a mixture, and which is which decides where a patch should go:
   nothing in each case. In `MULTI_TENANT` mode the listing dials through the same strict
   address guard as connect.
 
+- **The admin sign-in page no longer links to a password reset page that does not exist.**
+  Whenever SMTP was configured, the password field carried a "Forgot password?" link to
+  `/admin/forgot-password`, a route this build has never had. For a signed-out visitor, the
+  only one who would click it, the admin shell's session check sent them straight back to the
+  sign-in page, so the link appeared to do nothing. The link is gone. There is still no self-service password reset: the emailed one-time login
+  link on the same page, which appears under the same condition, is the way back in. Fork-only:
+  upstream is adding a reset flow of its own
+  ([Calnode/calnode#53](https://github.com/Calnode/calnode/pull/53)), which this does not port.
+
 ## [0.9.0] - 2026-09-10
 
 **Upstream's release, recorded here for alignment rather than reproduced.** Five of

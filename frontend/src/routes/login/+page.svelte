@@ -103,7 +103,6 @@
 	const showGoogle = $derived(status?.providers?.includes('google') ?? false);
 	const showMicrosoft = $derived(status?.providers?.includes('microsoft') ?? false);
 	const showEmail = $derived(status?.email_login ?? false);
-	const showForgot = $derived(status?.smtp_configured ?? false);
 	const showMagic = $derived(status?.smtp_configured ?? false);
 	const showDivider = $derived((showGoogle || showMicrosoft) && showEmail);
 </script>
@@ -173,12 +172,7 @@
 						<Input id="email" type="email" autocomplete="email" bind:value={email} required />
 					</div>
 					<div class="space-y-1.5">
-						<div class="flex items-center justify-between">
-							<Label for="password">Password</Label>
-							{#if showForgot}
-								<a href="/admin/forgot-password" class="text-xs text-muted-foreground hover:underline">Forgot password?</a>
-							{/if}
-						</div>
+						<Label for="password">Password</Label>
 						<Input id="password" type="password" autocomplete="current-password" bind:value={password} required />
 					</div>
 					<Button type="submit" class="h-11 w-full" disabled={submitting}>
