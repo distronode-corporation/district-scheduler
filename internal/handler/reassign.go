@@ -162,6 +162,8 @@ func (h *Handler) ReassignBooking(w http.ResponseWriter, r *http.Request) {
 				// Reassignment cancels on the OLD host's calendar. Their stored calendar id is not
 				// loaded here, so this falls back to resolving their destination - the same
 				// behaviour as before, and correct unless they also moved their destination.
+				// A CalDAV event is the exception: its id is its URL, which is enough to find the
+				// account that holds it wherever the destination is now.
 				if err := gc.CancelEvent(ctx, oldHostID, "", extEventID); err != nil {
 					h.logger.Error("reassign: delete old calendar event", "error", err, "booking_id", bCopy.ID)
 				}
@@ -193,7 +195,9 @@ func (h *Handler) ReassignBooking(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Notify the attendee (their host changed) and the new host, reusing the
-		// confirmation templates. Host details are overridden to the new host.
+		// confirmation templates. The emails name the NEW host: ReassignHost returns
+		// the booking with HostID already set to newHostID, and loadCancellationData
+		// reads the host from the booking copy it is given.
 		d, err := h.loadCancellationData(ctx, &bCopy)
 		if err != nil {
 			h.logger.Error("reassign: load email data", "error", err, "booking_id", bCopy.ID)
@@ -201,9 +205,6 @@ func (h *Handler) ReassignBooking(w http.ResponseWriter, r *http.Request) {
 		}
 		d.BaseURL = h.publicURL()
 		h.applyBranding(ctx, &d)
-		if err := h.loadHostIntoData(ctx, newHostID, &d); err != nil {
-			h.logger.Error("reassign: load new host", "error", err, "booking_id", bCopy.ID)
-		}
 
 		prefs := h.hostPrefsOrDefault(ctx, bCopy.ID, newHostID)
 		if prefs.NotifyConfirmation {

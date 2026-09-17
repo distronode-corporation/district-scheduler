@@ -32,7 +32,10 @@ Entries below are a mixture, and which is which decides where a patch should go:
 - **Fork-authored, pending upstream.** `fr-CA`, `GET /metrics`, `STT_BASE_URL`, the
   `booking.reminder` webhook event and sign-out-everywhere are ours and are open pull
   requests upstream, so they may appear in a later upstream release under upstream's
-  own wording.
+  own wording. So are these fixes, written against upstream and ported here: Microsoft
+  calendars being writable ([#55]), the booking-page honeypot ([#51]), booking emails
+  naming the booking's host ([#50]), moving or cancelling a CalDAV event as the account
+  that holds it ([#56]) and listing every calendar on a CalDAV account ([#54]).
 - **Fork-only, and staying that way.** PostgreSQL support, `MULTI_TENANT` and
   everything under it (the platform API, the signed session hand-off, `ADMIN_SPA`,
   `PLATFORM_RETURN_ORIGINS`, the neutral tenant root, the booking link that cannot be
@@ -45,7 +48,12 @@ Entries below are a mixture, and which is which decides where a patch should go:
 [#29]: https://github.com/Calnode/calnode/pull/29
 [#31]: https://github.com/Calnode/calnode/pull/31
 [#40]: https://github.com/Calnode/calnode/pull/40
+[#50]: https://github.com/Calnode/calnode/pull/50
+[#51]: https://github.com/Calnode/calnode/pull/51
 [#52]: https://github.com/Calnode/calnode/pull/52
+[#54]: https://github.com/Calnode/calnode/pull/54
+[#55]: https://github.com/Calnode/calnode/pull/55
+[#56]: https://github.com/Calnode/calnode/pull/56
 
 ### Security
 - **A booker's email address is validated where it enters, and is never written into an
@@ -83,6 +91,29 @@ Entries below are a mixture, and which is which decides where a patch should go:
   outright, as before. From upstream
   ([#49](https://github.com/Calnode/calnode/pull/49)), which shipped it without a
   changelog entry.
+
+- **Moving or cancelling a CalDAV booking no longer sends another account's app password
+  to the server holding the event.** A host can connect several CalDAV accounts, and
+  rescheduling or cancelling authenticated as whichever account was the destination at
+  the time, not the one the event was written to. After a host moved their destination
+  from an account on one server to an account on another, every reschedule or cancel of
+  an older booking sent the new account's username and app password to the old account's
+  server. A server that refused them left the calendar unchanged and the reconciler
+  retried, sending them again every sweep for a cancelled booking and until the end time
+  for a moved one. A server that answered 404 instead was taken at its word: the event
+  counted as already gone and stayed where it was.
+
+  Update and cancel now authenticate as the account that holds the event, found from what
+  the booking stored: the calendar recorded at creation, or failing that the connected
+  calendar whose URL contains the event's URL (same scheme, host and port). If no single
+  account can be established, nothing is sent, and the reconciler logs one warning and stops
+  retrying that event rather than refusing it again every sweep; the event stays where it
+  is. Hosts who moved a CalDAV destination between accounts on different servers should
+  consider rotating the app password of the account they moved to.
+
+  The new lookups read `calendar_connections` and `connection_calendars` through the
+  workspace-bound handle, like every other CalDAV read, so in `MULTI_TENANT` mode a
+  workspace can only ever act as its own accounts.
 
 ### Added
 - **Canadian French (`fr-CA`) on the booker-facing surfaces.** A visitor whose browser asks
@@ -280,6 +311,99 @@ Entries below are a mixture, and which is which decides where a patch should go:
   section with Zoom's three ways around it (same account, beta sharing, publishing) and
   the link-only fallback that needs no Zoom app. Answers
   [#35](https://github.com/Calnode/calnode/issues/35).
+
+- **Microsoft calendars can be chosen as the one bookings are written into.** Since 0.5.0
+  the calendar picker marked every Microsoft calendar "(read-only)" and disabled its Book
+  option. The calendar list read Graph's `canEdit` but left it out of `$select`, so Graph
+  never returned it and every calendar decoded as not writable. It is now requested, and a
+  test fails if that request omits any property the response decodes.
+
+  `GET /v1/calendar/connections/{id}/calendars` now reports `writable: true` for a Microsoft
+  calendar the user can edit, where it reported `false` for every one.
+
+- **Booking no longer fails with a 400 for people whose browser autofills the hidden
+  honeypot field.** The booking page's anti-bot field was labelled "Company" and named
+  `company`, which is exactly what Chrome looks for when filling an organisation from an
+  address profile, so autofill filled it despite `autocomplete="off"` and the server
+  rejected a real person as a bot. Fixes
+  [#33](https://github.com/Calnode/calnode/issues/33), diagnosed by
+  [@MinosChatzidakis](https://github.com/MinosChatzidakis).
+
+  The input now has no label and a neutral `name="hp"`/`id="f-hp"`, checked against
+  Chromium's own field-classification patterns. The API is unchanged: the page still
+  posts the value as `company`, so the embed widget and any third-party client keep
+  working, and a filled value is still rejected. The embed widget needed no change; its
+  honeypot never had a label, name or id.
+
+- **Booking emails name the host a booking was assigned to, not the owner of its event
+  type.** On a round-robin or multi-host event type those are different people, and the
+  owner may not attend at all, but the host was looked up through `event_types.user_id`.
+  Fixes [#48](https://github.com/Calnode/calnode/issues/48), reported with the fix by
+  [@MinosChatzidakis](https://github.com/MinosChatzidakis).
+
+  - The **reminder** told the attendee they were meeting the owner, and was sent or
+    skipped by the owner's `notify_reminder` preference rather than the host's.
+  - The host's **reschedule** notice went to the owner, so the host who was actually
+    attending was never told the meeting had moved. The attendee's reschedule email and
+    its `.ics` organizer named the owner too. This applies to every reschedule path:
+    admin, manage link and MCP.
+  - The **cancellation** and **reassign** emails loaded the owner first and replaced
+    them before sending, so neither was visibly wrong. Both now start from the booking's
+    host, and reassign no longer needs its own second lookup.
+  - The **manage page** named the owner in the one case where it could not read the
+    booking's hosts; it now names the booking's primary host there too. This part is
+    fork-only.
+
+  An event type whose owner is also its only host is unaffected.
+
+- **A CalDAV event is moved or deleted even after the destination moves to Google or
+  Microsoft.** The event was handed to the new destination's provider, which could not
+  find an id it never issued, so the event stayed on the CalDAV calendar at its old time,
+  or after its booking was cancelled. A CalDAV event id is the event's URL, which is now
+  enough to route it back to the CalDAV provider whatever the destination is.
+
+- **A CalDAV account now offers every calendar in it, not only the one it connected with.**
+  Closes [#42](https://github.com/Calnode/calnode/issues/42).
+
+  Connecting binds one collection, and the calendar picker could only ever show that one, so
+  an account with several calendars (the report was Synology Calendar) could be checked and
+  booked into through its default calendar alone. The picker now lists every calendar under
+  the account's calendar home that can hold events, marks read-only shares (from
+  `DAV:current-user-privilege-set`) so they can be checked but not booked into, and free/busy
+  reads every calendar ticked for conflicts. Accounts that never saved a selection keep
+  reading only the calendar they were bound to, and nothing needs reconnecting: the list is
+  rediscovered from the stored calendar URL. The picker also says what Check and Book mean,
+  and why Book moves rather than unticks.
+
+  Two refusals come with it, both CalDAV-only. A calendar listed on a different origin from
+  its calendar home is skipped, because a CalDAV calendar id is the URL that later receives the
+  account's credentials; listing an existing account's calendars goes further and never sends a
+  request, or follows a principal, calendar home or redirect, off the origin of the calendar it
+  connected with. This changes connecting for one setup: a server behind a reverse proxy
+  that reports its internal scheme or host in every href used to connect and now does not, with
+  an error naming both addresses and pointing at the proxy or base URL settings. And saving a
+  selection that names a CalDAV calendar the server did not list is refused with a 400, where
+  the endpoint used to store whatever the client sent. Google and Microsoft selections save
+  exactly as before, with no call to the provider: their ids carry no credentials anywhere, so
+  there is nothing for the check to protect.
+
+  What an API client sees, CalDAV accounts only: `GET /v1/calendar/connections/{id}/calendars`
+  now talks to the server, so it can list several calendars (with `writable` from the server),
+  and can answer 409 for an app password the server rejects or 502 when the server cannot be
+  reached, where it used to return the one bound calendar without a request.
+  `PUT /v1/calendar/connections/{id}/calendars` answers 400 for a calendar id the server does
+  not list, 409 for a rejected app password and 502 for an unreachable server, and saves
+  nothing in each case. In `MULTI_TENANT` mode the listing dials through the same strict
+  address guard as connect.
+
+- **The admin sign-in page no longer links to a password reset page that does not exist.**
+  Whenever SMTP was configured, the password field carried a "Forgot password?" link to
+  `/admin/forgot-password`, a route this build has never had. For a signed-out visitor, the
+  only one who would click it, the admin shell's session check sent them straight back to the
+  sign-in page, so the link appeared to do nothing. The link is gone. There is still no self-service password reset: the emailed one-time login
+  link on the same page, which appears under the same condition, is the way back in. Fork-only:
+  upstream is adding a reset flow of its own
+  ([Calnode/calnode#53](https://github.com/Calnode/calnode/pull/53)), which this does not port.
 
 ## [0.9.0] - 2026-09-10
 

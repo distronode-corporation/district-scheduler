@@ -585,6 +585,14 @@ them - the most common "why can't I see those times".
   (`maxBookingsPerEmailPerHour`) backstops rotating-IP spam; and the booking form has a
   hidden **honeypot** (`company`) that rejects bots. Booker email *verification* is
   intentionally absent — it would need a pending-booking state (a deliberate non-goal).
+  - **The honeypot input must give browser autofill nothing to classify.** Autofill
+    fills fields it recognises by label text and `name`/`id`, and a "Company" label with
+    `name="company"` made Chrome fill it from real bookers' address profiles despite
+    `autocomplete="off"`, so the server rejected people as bots (#33). On
+    `book.html` it has no label and a neutral `name="hp"`/`id="f-hp"`; the embed
+    widget's has no label, name or id at all. Only the JSON field is called `company`.
+    `TestBookPage_honeypotGivesAutofillNothingToClassify` holds the rendered markup to
+    that.
 - **Cancel:** `CancelBooking` (admin) and `CancelByToken` (manage link) share
   `Handler.cancelSideEffects` — loops `booking_hosts`, cancels each host's calendar
   event by its stored id, notifies each host + the attendee (attendee "With:" = the
@@ -638,6 +646,33 @@ Calnode talks to calendars through a **provider abstraction**, not a single vend
   added via the `openid` scope. A blanket `404 MailboxNotEnabledForRESTAPI` on every
   `/me/*` call means the account has **no Exchange Online mailbox** (not an auth error).
   Graph errors log their response body to make this self-evident.
+- *CalDAV* (`internal/caldav`): username + app password over Basic auth, connected through
+  `POST /v1/calendar/caldav/connect`, which walks `current-user-principal` →
+  `calendar-home-set` → a Depth 1 listing and binds the account's default collection
+  (`calendar_connections.calendar_id`). **A calendar id is the collection URL**, so the picker,
+  free/busy and write-back all address collections directly. `ListCalendars` repeats that walk
+  from the bound collection with the stored credentials (the server URL typed at connect is not
+  stored; a server that reports no principal there gets the collection's parent) and lists
+  every VEVENT-capable collection under the home, with `Writable` read from
+  `DAV:current-user-privilege-set` (`all`, `write`, `write-content` or `bind`; not reported
+  counts as writable). **A collection on a different origin (scheme, host, port) from the home
+  is skipped**, at connect and when listing, because a stored id is sent the account's
+  credentials on every read and write. When that leaves connect with no event calendar at all
+  (typically a reverse proxy whose upstream reports its internal scheme or host in hrefs), it
+  fails naming both addresses rather than with "no writable calendar found". CalDAV implements
+  `calendar.SelectionValidator` (below). Free/busy REPORTs each calendar ticked for conflicts
+  (`ConflictCalendarIDs`) and makes no discovery requests; an account that never saved a
+  selection reads only its bound collection. A 401/403 wraps `calendar.ErrReauthRequired`, so
+  a revoked app password shows as "needs reconnecting" in the picker.
+  **Listing never leaves the bound collection's origin.** It runs on every picker load and
+  every saved selection, with the account's credentials, against hrefs the server chooses, so
+  `homeForCalendar` does not follow a principal or calendar home on another origin (it lists the
+  bound collection's parent instead), `propfind` is pinned to that origin and refuses a redirect
+  off it, and `ListCalendars` drops any collection off it. Connect-time discovery is not pinned:
+  it starts from a URL the user typed, and can legitimately cross hosts (iCloud's calendar home
+  is on a per-account partition host). In `MULTI_TENANT` mode every listing request dials
+  through the same strict guard as connect (`caldav.WithStrictSSRFGuard`), so a picker load
+  cannot reach an address connect could not.
 
 **Online-meeting links are provider-matched (`booking_handler.go`).** A
 `google_meet`/`teams` event type auto-mints a link **only when the primary host's
@@ -699,13 +734,39 @@ Saving a sub-calendar destination also moves the account-level destination to th
 or the choice silently does nothing when the picked calendar lives in a different account
 from the current destination.
 
+**Where a calendar id says where credentials go, a saved selection is checked first.** A
+provider implementing `calendar.SelectionValidator` (CalDAV, whose id is a collection URL that
+free/busy and bookings authenticate to) is asked to accept every id before
+`SetAccountCalendars` opens its transaction. A refused id is `*UnknownCalendarError` (400 from
+`PUT .../calendars`) and nothing is saved; a failure to check is `ErrCalendarList` (502) or a
+reauth error (409), as on the GET. Google and Microsoft do not implement it: their ids are
+names inside an API the account's token already scopes, so saving there stays a local write
+with no provider call, and aliases such as Google's `"primary"` still save.
+
 **`booking_hosts.external_calendar_id` records where each event actually went** (migration
 00055). Reschedule and cancel use it rather than re-resolving the current destination -
 otherwise changing the destination orphans every existing booking: the provider 404s, the
 booking cancels in Calnode, and the meeting stays on the host's calendar with nothing
 surfaced. Empty means "resolve the old way", correct for bookings that predate the column.
-Known limit: this rescues a change of calendar *within* an account, not a move to a
-different account, which would need the account recorded too.
+Known limit (Google, Microsoft): this rescues a change of calendar *within* an account, not
+a move to a different account, which would need the account recorded too.
+
+CalDAV does not have that limit, because its event id is the event's absolute URL and so
+already names the server. `Service.UpdateEvent`/`CancelEvent` route an id the CalDAV
+provider recognizes (`calendar.EventRecognizer`) to it whatever the destination is now, and
+it authenticates as the connected account that holds the event (`caldav.eventConn`), never
+as the destination: the account whose bound or saved calendar is the recorded calendar id,
+else whose calendar URL contains the event URL (same scheme, host and port, path under it;
+most specific wins). No match, or a tie, sends nothing and returns an error. This is a
+credential boundary, not a routing nicety: accounts can live on different servers, and the
+destination's app password sent to an older event's URL goes to someone else's server.
+
+That refusal matches `calendar.ErrEventUnreachable`, and the reconciler treats it as final:
+it logs one warning, clears `needs_sync` (reschedule) or the event id (cancel, logged
+redacted since it is the only record), and does not retry. Retrying cannot help, because it
+re-reads the same connections and refuses the same way, and the cancellation sweep has no
+date bound, so it would repeat forever. Any other error, such as a server that is down or
+refuses the stored password, stays retryable.
 
 ---
 
@@ -798,6 +859,15 @@ as the desired state:
   itself is `multipart/alternative` (text+HTML) or single-part text.
 - Multi-host fan-out: each assigned host gets their host-notification; the attendee
   gets one. (See §9.)
+- **The host in a booking email is the booking's, never the event type's owner.**
+  Name, address and notification prefs come from `bookings.host_id` (the primary host)
+  or `booking_hosts`, not `event_types.user_id`: on round-robin and multi-host event
+  types the owner is often not attending. The reminder worker joins on
+  `bookings.host_id`; `loadCancellationData` (cancel, reschedule, reassign) takes the
+  host from the `HostID` of the booking it is given. The manage page's fallback name,
+  used when `booking_hosts` yields nothing, is the booking's primary host too. The
+  public booking page, the embed's public event-type read and the tenant index still
+  join the owner: no booking exists there, so the owner is the only host to name.
 - **Per-event-type customisation:** custom note bodies (`msg_*`) and custom subject
   lines (`subj_*`, migration 00026) for the four attendee emails; a blank subject
   falls back to the built-in default (`BookingData.SubjectOverride` / `subjectOr`).

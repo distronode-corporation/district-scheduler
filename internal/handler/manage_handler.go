@@ -97,11 +97,13 @@ func (h *Handler) ManagePage(w http.ResponseWriter, r *http.Request) {
 	var etName, etSlug, locType, locValue string
 	var durMins, maxDays, minNotice int
 	var hostName string
+	// u is the booking's primary host (bookings.host_id), not event_types.user_id: the
+	// owner of a round-robin or multi-host event type may not be attending at all.
 	if err := h.db.QueryRowContext(r.Context(), `
 		SELECT et.name, et.slug, et.duration_minutes, et.max_future_days, et.min_notice_minutes,
 		       et.location_type, COALESCE(et.location_value,''), u.name
-		FROM event_types et JOIN users u ON u.id = et.user_id
-		WHERE et.id = ?`, b.EventTypeID).
+		FROM event_types et JOIN users u ON u.id = ?
+		WHERE et.id = ?`, b.HostID, b.EventTypeID).
 		Scan(&etName, &etSlug, &durMins, &maxDays, &minNotice, &locType, &locValue, &hostName); err != nil {
 		h.logger.ErrorContext(r.Context(), "manage page: load event type", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -109,8 +111,8 @@ func (h *Handler) ManagePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Show the actual assigned host(s) for this booking, not the event-type owner
-	// (round-robin/Group route elsewhere). Falls back to the owner name above if
-	// no booking_hosts rows exist. The avatar uses the primary host.
+	// (round-robin/Group route elsewhere). Falls back to the primary host's name above
+	// if no booking_hosts rows can be read. The avatar uses the primary host.
 	loc := h.resolveLocale(r)
 	var hostInitial, avatarURL, soleHost string
 	if hosts := h.displayHostsForBooking(r.Context(), b.ID); len(hosts) > 0 {
@@ -122,7 +124,7 @@ func (h *Handler) ManagePage(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		hostInitial = firstRune(hostName)
-		soleHost = hostName // the event-type owner: one person, so nameable
+		soleHost = hostName // the booking's primary host: one person, so nameable
 	}
 
 	var orgTZ string
