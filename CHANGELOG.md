@@ -32,7 +32,8 @@ Entries below are a mixture, and which is which decides where a patch should go:
   ours and are open pull requests upstream, so they may appear in a later upstream
   release under upstream's own wording. So are these fixes, written against upstream
   and ported here: Microsoft calendars being writable ([#55]), the booking-page
-  honeypot ([#51]) and booking emails naming the booking's host ([#50]).
+  honeypot ([#51]), booking emails naming the booking's host ([#50]) and moving or
+  cancelling a CalDAV event as the account that holds it ([#56]).
 - **Fork-only, and staying that way.** PostgreSQL support, `MULTI_TENANT` and
   everything under it (the platform API, the signed session hand-off, `ADMIN_SPA`,
   `PLATFORM_RETURN_ORIGINS`, the neutral tenant root), and the
@@ -46,6 +47,7 @@ Entries below are a mixture, and which is which decides where a patch should go:
 [#50]: https://github.com/Calnode/calnode/pull/50
 [#51]: https://github.com/Calnode/calnode/pull/51
 [#55]: https://github.com/Calnode/calnode/pull/55
+[#56]: https://github.com/Calnode/calnode/pull/56
 
 ### Security
 - **A booker's email address is validated where it enters, and is never written into an
@@ -71,6 +73,29 @@ Entries below are a mixture, and which is which decides where a patch should go:
   parsed bare address, so a pasted `Bob <bob@example.com>` is recorded as
   `bob@example.com` - a small deliberate behaviour change, matching what the hourly
   throttle, the per-invitee cap and the `To:` header already assume they hold.
+
+- **Moving or cancelling a CalDAV booking no longer sends another account's app password
+  to the server holding the event.** A host can connect several CalDAV accounts, and
+  rescheduling or cancelling authenticated as whichever account was the destination at
+  the time, not the one the event was written to. After a host moved their destination
+  from an account on one server to an account on another, every reschedule or cancel of
+  an older booking sent the new account's username and app password to the old account's
+  server. A server that refused them left the calendar unchanged and the reconciler
+  retried, sending them again every sweep for a cancelled booking and until the end time
+  for a moved one. A server that answered 404 instead was taken at its word: the event
+  counted as already gone and stayed where it was.
+
+  Update and cancel now authenticate as the account that holds the event, found from what
+  the booking stored: the calendar recorded at creation, or failing that the connected
+  calendar whose URL contains the event's URL (same scheme, host and port). If no single
+  account can be established, nothing is sent, and the reconciler logs one warning and stops
+  retrying that event rather than refusing it again every sweep; the event stays where it
+  is. Hosts who moved a CalDAV destination between accounts on different servers should
+  consider rotating the app password of the account they moved to.
+
+  The new lookups read `calendar_connections` and `connection_calendars` through the
+  workspace-bound handle, like every other CalDAV read, so in `MULTI_TENANT` mode a
+  workspace can only ever act as its own accounts.
 
 ### Added
 - **Canadian French (`fr-CA`) on the booker-facing surfaces.** A visitor whose browser asks
@@ -291,6 +316,12 @@ Entries below are a mixture, and which is which decides where a patch should go:
     fork-only.
 
   An event type whose owner is also its only host is unaffected.
+
+- **A CalDAV event is moved or deleted even after the destination moves to Google or
+  Microsoft.** The event was handed to the new destination's provider, which could not
+  find an id it never issued, so the event stayed on the CalDAV calendar at its old time,
+  or after its booking was cancelled. A CalDAV event id is the event's URL, which is now
+  enough to route it back to the CalDAV provider whatever the destination is.
 
 ## [0.9.0] - 2026-09-10
 
