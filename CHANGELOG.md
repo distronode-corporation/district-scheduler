@@ -30,7 +30,8 @@ Entries below are a mixture, and which is which decides where a patch should go:
 - **Fork-authored, pending upstream.** `fr-CA`, `GET /metrics`, `FRAME_ANCESTORS`,
   `STT_BASE_URL`, the `booking.reminder` webhook event and sign-out-everywhere are
   ours and are open pull requests upstream, so they may appear in a later upstream
-  release under upstream's own wording.
+  release under upstream's own wording. So are these fixes, written against upstream
+  and ported here: Microsoft calendars being writable ([#55]).
 - **Fork-only, and staying that way.** PostgreSQL support, `MULTI_TENANT` and
   everything under it (the platform API, the signed session hand-off, `ADMIN_SPA`,
   `PLATFORM_RETURN_ORIGINS`, the neutral tenant root), and the
@@ -41,6 +42,7 @@ Entries below are a mixture, and which is which decides where a patch should go:
 
 [#29]: https://github.com/Calnode/calnode/pull/29
 [#31]: https://github.com/Calnode/calnode/pull/31
+[#55]: https://github.com/Calnode/calnode/pull/55
 
 ### Security
 - **A booker's email address is validated where it enters, and is never written into an
@@ -242,6 +244,15 @@ Entries below are a mixture, and which is which decides where a patch should go:
   `defaults.event_type` takes `location_type` and `location_value`, both optional and both
   checked before anything is written, so a value the editor would reject is answered 400
   with the reason rather than provisioned and discovered later.
+
+- **Microsoft calendars can be chosen as the one bookings are written into.** Since 0.5.0
+  the calendar picker marked every Microsoft calendar "(read-only)" and disabled its Book
+  option. The calendar list read Graph's `canEdit` but left it out of `$select`, so Graph
+  never returned it and every calendar decoded as not writable. It is now requested, and a
+  test fails if that request omits any property the response decodes.
+
+  `GET /v1/calendar/connections/{id}/calendars` now reports `writable: true` for a Microsoft
+  calendar the user can edit, where it reported `false` for every one.
 
 ## [0.9.0] - 2026-09-10
 
