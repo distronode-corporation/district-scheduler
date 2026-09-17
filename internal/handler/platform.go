@@ -131,7 +131,11 @@ type platformWorkspaceRequest struct {
 			// to, so provisioning cannot write a row the owner's first save rejects.
 			LocationType  string `json:"location_type"`
 			LocationValue string `json:"location_value"`
-			Availability  []struct {
+			// The OWNER's working hours, despite where the field sits: seeded as global
+			// rules (event_type_id NULL), not as rules of this event type. The name is the
+			// website client's and stays; seedWorkspaceEventType says why the rows do not
+			// follow it.
+			Availability []struct {
 				DayOfWeek int    `json:"day_of_week"`
 				StartTime string `json:"start_time"`
 				EndTime   string `json:"end_time"`
@@ -165,7 +169,7 @@ type platformWorkspaceRequest struct {
 //
 // One transaction provisions the whole tenant: the workspaces row, its server_settings
 // row seeded from defaults, the owner user, that owner's first cno_ key, the webhook
-// subscription, and the default event type with its availability rules. Either a
+// subscription, the default event type, and the owner's working hours. Either a
 // workspace exists complete or it does not exist — a half-provisioned tenant would answer
 // requests with no owner, or hand out a booking page with no availability.
 //
@@ -222,8 +226,8 @@ func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The owner. iana_timezone is the REQUESTED timezone, not UTC: it is what the admin
-	// UI renders every time in and what the default event type's availability below is
-	// expressed in, so defaulting it would silently move the workspace's working hours.
+	// UI renders every time in and what the working hours seeded below are expressed in,
+	// so defaulting it would silently move the workspace's working hours.
 	if _, err := tx.ExecContext(r.Context(), `
 		INSERT INTO users (id, workspace_id, email, name, iana_timezone, is_admin, is_owner, email_login)
 		VALUES (?, ?, ?, ?, ?, 1, 1, 0)`,
@@ -404,8 +408,17 @@ var seedLocationTypes = map[string]bool{
 	"phone": true, "in_person": true, "link": true, "livekit": true,
 }
 
-// seedWorkspaceEventType writes the default event type, its owner host row and its
-// availability rules.
+// seedWorkspaceEventType writes the default event type, its owner host row, and the
+// owner's working hours from defaults.event_type.availability.
+//
+// ⛔ The working hours are GLOBAL rules (event_type_id NULL), not rules of the event type
+// this seeds, whatever the request field's position suggests. Slot generation
+// (loadHostSchedule) offers the UNION of a host's global rules and the event type's own,
+// and the District dashboard's Working Hours editor, like its overview, reads and writes
+// global rules only: it has no surface for per-event-type hours. Seeded against the event
+// type, Monday to Friday 09:00-17:00 stacked invisibly under whatever the owner set and
+// could not be removed from the UI. A production tenant that set 09:00-13:00 kept selling
+// afternoons.
 //
 // ⛔ The default location is 'in_person' with a NULL value, and the reason is the rule
 // CLAUDE.md states as "anything written without validation must be valid by
@@ -486,12 +499,19 @@ func (h *Handler) seedWorkspaceEventType(ctx context.Context, tx *db.Tx, req *pl
 		return fmt.Errorf("insert event type host: %w", err)
 	}
 
+	// The owner's working hours: event_type_id NULL, so these are the global rules the
+	// dashboard edits (see the doc comment above for what went wrong with it set).
+	//
+	// A plain INSERT with no merge against existing rules, because there are none: the
+	// owner was created a few statements earlier in this same transaction, so no global
+	// rule for this user can exist yet. workspace_id is named for the reason every INSERT
+	// in this file names it: the platform handle binds ''.
 	for _, a := range et.Availability {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO availability_rules
 			  (id, workspace_id, user_id, event_type_id, day_of_week, start_time, end_time)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			uid.New(), req.ID, ownerID, etID, a.DayOfWeek, a.StartTime, a.EndTime); err != nil {
+			VALUES (?, ?, ?, NULL, ?, ?, ?)`,
+			uid.New(), req.ID, ownerID, a.DayOfWeek, a.StartTime, a.EndTime); err != nil {
 			return fmt.Errorf("insert availability rule: %w", err)
 		}
 	}
