@@ -725,6 +725,31 @@ func (h *Handler) PatchEventType(w http.ResponseWriter, r *http.Request) {
 	// is the check we can make honestly. Cancelled ones count - the manage link in that
 	// booker's confirmation email still resolves through the slug.
 	effectiveSlug := slug
+
+	// ⛔ Multi-tenant: a booking link is never renamed, booked or not. The platform in
+	// front of this mode addresses each tenant's event types BY SLUG (the District website
+	// builds booking URLs from them and the voice agent books through them), so a rename
+	// breaks booking at once, with no booking row here to have warned about it. Upstream's
+	// "until the first booking" window does not exist on this deployment.
+	//
+	// The refusal keys on a CHANGE, never on the field being present: the admin editor
+	// submits every field on every save, so refusing on mention would make every event
+	// type unsaveable. Unchanged means the value as stored, or one slugify maps onto it,
+	// which is upstream's own no-op. The first half matters for a stored slug slugify
+	// would rewrite (create and platform provisioning store what they are given): compared
+	// only after slugify, resubmitting it would read as a rename and lock the editor out.
+	//
+	// Checked before upstream's block below, and leaving that block untouched, so a later
+	// upstream change to the rename rules still merges into single-tenant mode as written.
+	if req.Slug != nil && h.multiTenant {
+		if strings.TrimSpace(*req.Slug) != slug && slugify(*req.Slug) != slug {
+			h.writeError(w, http.StatusConflict,
+				"renaming an event type's booking link is not available on this deployment")
+			return
+		}
+		req.Slug = nil // unchanged: nothing to write
+	}
+
 	if req.Slug != nil {
 		newSlug := slugify(*req.Slug)
 		if newSlug == "" {

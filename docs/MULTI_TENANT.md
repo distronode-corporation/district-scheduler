@@ -239,6 +239,7 @@ not the instance.
 | `POST /v1/webhooks` with an `http://` URL | **400**; https only |
 | `POST /v1/calendar/caldav/connect` with an `http://` `server_url` | **400**, naming the field and the accepted scheme |
 | `POST /v1/calendar/caldav/connect` to a private, loopback, link-local or metadata address | the ordinary "could not reach the CalDAV server", with no address in it |
+| `PATCH /v1/event-types/{slug}` changing `slug` | **409** `{"error":"renaming an event type's booking link is not available on this deployment"}`, booked or not; resubmitting the current slug is the no-op it always was, and every other field is the tenant's |
 
 The reasoning, per row:
 
@@ -292,6 +293,15 @@ The reasoning, per row:
   guard webhook delivery already uses. ⛔ The error text is part of the fix: connect-success
   versus connect-failure, times a hostname the caller controls, is a port scan, so a refused
   dial produces the same sentence an unreachable server produces and names no address.
+- **A booking link is never renamed.** Upstream lets an event type's slug change until its
+  first booking, because a booking is the first evidence the URL reached anyone. Here the
+  platform is that evidence from the moment the event type exists: it addresses each
+  tenant's event types by slug and builds booking URLs from them (the voice agent books
+  `phone-consultation` by name), so a rename breaks booking with no booking row to have
+  warned about it. ⚠️ The refusal is on a CHANGE, not on the field: the embedded editor
+  submits every field on every save, so the current slug (or a spelling slugify maps onto
+  it) is accepted and ignored. The admin SPA still shows the field, because nothing it
+  already fetches tells it which mode it is in; the server's answer is the guard.
 
 ⛔ **Everything NOT on that list is deliberately reachable, and it is what the platform's own
 console calls**: branding, the storage toggle, the notetaker toggle, the tracking ids, the

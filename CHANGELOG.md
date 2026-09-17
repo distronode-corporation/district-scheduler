@@ -35,7 +35,8 @@ Entries below are a mixture, and which is which decides where a patch should go:
   own wording.
 - **Fork-only, and staying that way.** PostgreSQL support, `MULTI_TENANT` and
   everything under it (the platform API, the signed session hand-off, `ADMIN_SPA`,
-  `PLATFORM_RETURN_ORIGINS`, the neutral tenant root), and the
+  `PLATFORM_RETURN_ORIGINS`, the neutral tenant root, the booking link that cannot be
+  renamed), and the
   `Dockerfile.district` image. PostgreSQL ([#29]) and `MULTI_TENANT` ([#31]) were
   declined upstream in September 2026 on architectural grounds, so these will never
   appear in an upstream changelog.
@@ -217,6 +218,19 @@ Entries below are a mixture, and which is which decides where a patch should go:
   exists the role is left alone, except that a claim asking for `owner` bootstraps
   ownership when the instance has none. Archived accounts are still refused.
 
+### Changed
+- **On a multi-tenant instance an event type's booking link cannot be renamed.**
+  `PATCH /v1/event-types/{slug}` answers 409 "renaming an event type's booking link is not
+  available on this deployment" to any request that would change `slug`, whether or not the
+  event type has bookings. The platform in front of this mode addresses each tenant's event
+  types by slug and builds booking URLs from them, so upstream's "until the first booking"
+  window would let a rename break booking with nothing here to warn about it. Sending the
+  current slug back (the editor does, on every save) is still accepted and changes nothing,
+  including a stored slug that slugify would have spelled differently. Single-tenant
+  instances keep upstream's rule unchanged. The admin SPA still shows the field in this
+  mode: nothing it already loads says which mode it is running in, so the server's refusal
+  is the guard.
+
 ### Fixed
 - **Constraint violations are recognised by SQLite's error code rather than by its
   English message.** Thirteen call sites asked `strings.Contains(err.Error(), "UNIQUE
@@ -289,7 +303,8 @@ It is under `[Unreleased]` here.
   Refused with 409 once bookings exist, because by then the link is in circulation and
   somebody's manage link resolves through it. Mainly this is what makes a duplicate
   usable: it arrives as `<slug>-copy` and there was previously no way to give it a real
-  name short of deleting and recreating it.
+  name short of deleting and recreating it. On this fork's multi-tenant mode the rename is
+  refused outright; see `[Unreleased]`.
 
 - **The empty-day and minimum-notice explanations, finished.** The empty-day message
   keeps its call to action as well as naming the day ("No available times on Monday, 14
