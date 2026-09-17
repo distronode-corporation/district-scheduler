@@ -31,7 +31,8 @@ Entries below are a mixture, and which is which decides where a patch should go:
   `STT_BASE_URL`, the `booking.reminder` webhook event and sign-out-everywhere are
   ours and are open pull requests upstream, so they may appear in a later upstream
   release under upstream's own wording. So are these fixes, written against upstream
-  and ported here: Microsoft calendars being writable ([#55]).
+  and ported here: Microsoft calendars being writable ([#55]) and the booking-page
+  honeypot ([#51]).
 - **Fork-only, and staying that way.** PostgreSQL support, `MULTI_TENANT` and
   everything under it (the platform API, the signed session hand-off, `ADMIN_SPA`,
   `PLATFORM_RETURN_ORIGINS`, the neutral tenant root), and the
@@ -42,6 +43,7 @@ Entries below are a mixture, and which is which decides where a patch should go:
 
 [#29]: https://github.com/Calnode/calnode/pull/29
 [#31]: https://github.com/Calnode/calnode/pull/31
+[#51]: https://github.com/Calnode/calnode/pull/51
 [#55]: https://github.com/Calnode/calnode/pull/55
 
 ### Security
@@ -253,6 +255,20 @@ Entries below are a mixture, and which is which decides where a patch should go:
 
   `GET /v1/calendar/connections/{id}/calendars` now reports `writable: true` for a Microsoft
   calendar the user can edit, where it reported `false` for every one.
+
+- **Booking no longer fails with a 400 for people whose browser autofills the hidden
+  honeypot field.** The booking page's anti-bot field was labelled "Company" and named
+  `company`, which is exactly what Chrome looks for when filling an organisation from an
+  address profile, so autofill filled it despite `autocomplete="off"` and the server
+  rejected a real person as a bot. Fixes
+  [#33](https://github.com/Calnode/calnode/issues/33), diagnosed by
+  [@MinosChatzidakis](https://github.com/MinosChatzidakis).
+
+  The input now has no label and a neutral `name="hp"`/`id="f-hp"`, checked against
+  Chromium's own field-classification patterns. The API is unchanged: the page still
+  posts the value as `company`, so the embed widget and any third-party client keep
+  working, and a filled value is still rejected. The embed widget needed no change; its
+  honeypot never had a label, name or id.
 
 ## [0.9.0] - 2026-09-10
 
