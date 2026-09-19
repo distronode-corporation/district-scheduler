@@ -304,6 +304,18 @@ Entries below are a mixture, and which is which decides where a patch should go:
   checked before anything is written, so a value the editor would reject is answered 400
   with the reason rather than provisioned and discovered later.
 
+- **A provisioned tenant's working hours are the hours its dashboard shows and edits.**
+  `POST /v1/platform/workspaces` wrote `defaults.event_type.availability` as availability
+  rules of the seeded event type. Slots are offered from the union of a host's global
+  rules and the event type's own, and the District dashboard's Working Hours editor reads
+  and writes global rules only, so the seeded Monday to Friday 09:00-17:00 was invisible
+  there and could not be removed. In production a tenant set its hours to 09:00-13:00 and
+  kept selling afternoons. The seed now writes those rules as the owner's global working
+  hours (`event_type_id` NULL); the request field keeps its name, and the slots a new
+  tenant is offered are unchanged. This change repairs nothing already provisioned, and
+  there is no migration: existing tenancies keep their event-type rules until an operator
+  data fix moves them. Fork-only (`MULTI_TENANT`).
+
 - **The Zoom setup text no longer promises that an unpublished app works for "your own
   team".** Zoom only lets users inside the Zoom account that owns an unpublished app
   authorize it, so a member with their own Zoom account was refused on a Zoom error page
