@@ -20,3 +20,9 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    ignore:
+      # Node's odd majors never become LTS, and a major moves the frontend build's
+      # runtime. #24 (22 -> 25) failed the image build. Majors are taken by hand, to
+      # the next even (LTS) line, with the build proven first.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
