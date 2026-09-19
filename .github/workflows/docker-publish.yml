@@ -18,6 +18,18 @@ name: Docker publish
 #
 # Pin a deployment to `:sha-<short>`, never to `:dev` or `:edge` — those move under
 # you, and then nothing records which commit an instance is actually running.
+#
+# Every image this workflow PUSHES also gets a signed GitHub build provenance
+# attestation over the digest that gets pinned, so a deployment can prove not just
+# which bytes it runs but which workflow run, on which commit, produced them:
+#
+#   gh attestation verify oci://ghcr.io/distronode-corporation/district-scheduler@sha256:… \
+#     --repo distronode-corporation/district-scheduler
+#
+# BuildKit already attaches its own provenance manifest to the index (the two
+# `attestation-manifest` entries beside the amd64 and arm64 manifests). That one is
+# unsigned and says only what BuildKit saw; this one is Sigstore-signed and is what
+# `gh attestation verify` reads.
 on:
   push:
     branches: [district, dev]
@@ -45,16 +57,22 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Both only for the provenance attestation below: id-token to get the OIDC
+      # token Sigstore signs against, attestations to store the result.
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -69,7 +87,7 @@ jobs:
       # pre-release deploy can be pinned to an immutable tag that names its commit.
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
@@ -80,6 +98,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Build (push on branch pushes and on tags)
+        id: push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
@@ -92,6 +111,21 @@ jobs:
             VERSION=${{ steps.meta.outputs.version }}
             COMMIT=${{ github.sha }}
 
+      # `steps.push.outputs.digest` is buildx's `containerimage.digest`, and for a
+      # multi-arch `--push` build that is the digest of the image INDEX, not of either
+      # per-arch manifest. That matters: the index digest is what `crane digest
+      # ghcr.io/…:sha-<short>` returns, and therefore the digest a deployment pins, so it
+      # is the only one `gh attestation verify` on a pinned reference can find.
+      #
+      # Same condition as the GHCR login: on a pull request nothing is pushed, buildx
+      # sets no `containerimage.digest`, and the action would be handed an empty subject.
+      - name: Attest build provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+
   release:
     # Only on a version tag, and only once the image built + pushed.
     if: startsWith(github.ref, 'refs/tags/v')
@@ -100,7 +134,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # Pull the matching version's section out of CHANGELOG.md for the release body,
       # so the GitHub Release and the CHANGELOG stay identical. Index-based (not a `\[`
@@ -127,8 +163,9 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HAVE_NOTES: ${{ steps.notes.outputs.have_notes }}
         run: |
-          if [ "${{ steps.notes.outputs.have_notes }}" = "true" ]; then
+          if [ "$HAVE_NOTES" = "true" ]; then
             gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
               --notes-file release-notes.md --verify-tag
           else

@@ -4,13 +4,19 @@ version: 2
 # arrive on this fork with the sync, so a fork-side bump would edit go.mod/go.sum and
 # frontend/pnpm-lock.yaml — files shared with upstream — and drift them against it.
 # What is left is what the fork actually owns: its own workflow pins and its own image.
+# `cooldown` holds a version bump back until the release is a week old, so a compromised
+# publish that is yanked within days never reaches a PR. Security updates are not delayed.
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
