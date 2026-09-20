@@ -364,8 +364,18 @@ Response: `{"api_key": "cno_…", "webhook_secret": "…"}` — **shown once**. 
 the workspace row, its `server_settings` row (`id = 1` per workspace, so existing `WHERE id = 1`
 reads need no change), the owner (with `iana_timezone = owner_timezone`, because availability is
 local `HH:MM` and defaulting the zone would move the workspace's hours), the first API key, the
-webhook subscribed to **every** event the codebase emits, and the default event type with its
-availability. Either the tenant exists complete or it does not exist.
+webhook subscribed to **every** event the codebase emits, the default event type, and the owner's
+working hours. Either the tenant exists complete or it does not exist.
+
+⛔ **`defaults.event_type.availability` becomes the OWNER's working hours, not the event type's.**
+The rules are written as global rules (`event_type_id` NULL) belonging to the owner, despite where
+the field sits in the body; the name is the website client's and is kept. Slot generation offers
+the union of a host's global rules and the event type's own, and the District dashboard's Working
+Hours editor (and its overview) reads and writes global rules only, with no surface for
+per-event-type hours. Seeded against the event type, the defaults stacked invisibly under whatever
+the owner set there and could not be removed from it: a tenant that set 09:00-13:00 kept selling
+afternoons. The owner is created in the same transaction, so there are never existing global rules
+for these to collide with.
 
 `defaults.embed_allowed_origins` and `defaults.stt_base_url` are per workspace and are READ: the public
 booking endpoints' CORS allowlist is the one stored for the workspace whose host the request names (an
