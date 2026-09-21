@@ -33,8 +33,8 @@ const calendarQueryTmpl = `<?xml version="1.0" encoding="utf-8"?>
 // FreeBusy returns the union of busy intervals across every calendar selected for conflicts in
 // every CalDAV account the user has connected with check_conflicts = 1 (see conflictConns). Each
 // calendar is queried with a CalDAV calendar-query REPORT; transparent and cancelled events
-// don't block. Fail-open per calendar: one that errors is logged and skipped (a flaky calendar
-// never blocks availability).
+// don't block. A calendar that cannot be read is an error, never free time: the availability
+// check reports itself incomplete (see docs/ARCHITECTURE.md §10).
 func (c *Client) FreeBusy(ctx context.Context, userID string, from, to time.Time) ([]slots.Interval, error) {
 	conns, err := c.conflictConns(ctx, userID)
 	if err != nil {
@@ -48,8 +48,7 @@ func (c *Client) FreeBusy(ctx context.Context, userID string, from, to time.Time
 	for _, cn := range conns {
 		iv, err := c.freeBusyForConn(ctx, cn, body)
 		if err != nil {
-			c.logger.Warn("caldav: freebusy connection failed", "user_id", userID, "calendar", cn.calURL, "error", err)
-			continue
+			return nil, err
 		}
 		out = append(out, iv...)
 	}

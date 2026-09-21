@@ -17,20 +17,22 @@ import (
 // which is exactly the kind of file that gets written once and copied — so it is asserted
 // on whichever engine dbtest selects rather than on SQLite alone, and CI runs both.
 
-// replayMigrations re-applies the newest migration by forgetting it, so a data migration
+// replayMigrations re-applies one migration by forgetting it, so a data migration
 // can be exercised against rows that were not there when the test database was built.
 //
 // dbtest hands back a database already at the target version, and 00065's whole subject is
 // rows that predate it. Deleting its goose_db_version row and migrating again runs the
-// real file, from the real embedded FS, through the same db.Migrate the boot path calls —
+// real file, from the real embedded FS, through the boot path's goose setup —
 // rather than a copy of its SQL pasted into a test, which would assert that the test is
-// self-consistent and nothing about the migration that ships.
+// self-consistent and nothing about the migration that ships. It allows the forgotten
+// version to be "missing" below later ones: 00065 stopped being the newest migration when
+// 00066-00068 arrived with the upstream merge, and plain Migrate refuses that gap.
 func replayMigrations(t *testing.T, handle *db.DB, version int64) {
 	t.Helper()
 	if _, err := handle.Exec(`DELETE FROM goose_db_version WHERE version_id = ?`, version); err != nil {
 		t.Fatalf("forget migration %d: %v", version, err)
 	}
-	if err := handle.Migrate(); err != nil {
+	if err := db.MigrateAllowingMissing(handle); err != nil {
 		t.Fatalf("re-run migrations: %v", err)
 	}
 }

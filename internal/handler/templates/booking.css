@@ -511,3 +511,16 @@
 }
 .demo-banner strong { font-weight: 600; }
 .demo-banner a { color: inherit; text-decoration: underline; font-weight: 600; }
+
+.slots-list { max-height: none; overflow: visible; }
+.time-periods { display: flex; gap: 4px; padding: 4px; background: var(--bk-surface); border-radius: 8px; }
+.time-periods button { flex: 1; min-width: 0; padding: 10px 4px; border: 0; border-radius: 6px; background: transparent; color: var(--bk-fg-2); font: inherit; font-size: 12px; cursor: pointer; }
+.time-periods button[aria-pressed="true"] { background: var(--bk-card); color: var(--bk-fg); box-shadow: 0 1px 3px #0002; font-weight: 600; }
+.time-periods button:focus-visible { outline: 2px solid var(--bk-primary); outline-offset: 2px; }
+.time-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 8px; }
+.time-grid .slot-btn { padding: 12px 4px; font-variant-numeric: tabular-nums; }
+/* A host's booking accent (upstream's per-user colour) wins over the page theme only when
+   one was chosen: the pages set --booking-accent only for a non-default accent, so an
+   unset one falls through to the theme's own primary (the District palette on hosted
+   pages, the neutral ink in the widget). */
+.cd.sel, .slot-btn.sel, .btn-primary { background: var(--booking-accent, var(--bk-primary)) !important; border-color: var(--booking-accent, var(--bk-primary)); color: var(--booking-accent-text, var(--bk-on-primary)) !important; }

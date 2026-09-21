@@ -66,6 +66,7 @@ var exportTableOrder = []string{
 	"api_keys",
 	"sessions",
 	"magic_link_tokens",
+	"password_reset_tokens",
 	"invite_tokens",
 	"oauth_access_tokens",
 	"oauth_auth_codes",

@@ -29,13 +29,20 @@ Entries below are a mixture, and which is which decides where a patch should go:
   violations by error code, and the event-type creation fixes (all in upstream's
   `[0.9.0]`), plus `FRAME_ANCESTORS` ([#40]) and the Zoom setup text ([#52]), which
   merged upstream after 0.9.0 was tagged.
-- **Fork-authored, pending upstream.** `fr-CA`, `GET /metrics`, `STT_BASE_URL`, the
-  `booking.reminder` webhook event and sign-out-everywhere are ours and are open pull
-  requests upstream, so they may appear in a later upstream release under upstream's
-  own wording. So are these fixes, written against upstream and ported here: Microsoft
-  calendars being writable ([#55]), the booking-page honeypot ([#51]), booking emails
-  naming the booking's host ([#50]), moving or cancelling a CalDAV event as the account
-  that holds it ([#56]) and listing every calendar on a CalDAV account ([#54]).
+- **Fork-authored, merged upstream since 0.9.0** (arrived back with the 2026-09-21 sync,
+  already present here): `fr-CA` ([#39]), sign-out-everywhere ([#41]), the disclosure
+  policy and Dependabot config ([#44]; this fork keeps its own `SECURITY.md` and
+  `dependabot.yml`), booker-address validation ([#45]), Microsoft calendars being
+  writable ([#55]) and moving or cancelling a CalDAV event as the account that holds it
+  ([#56]).
+- **Fork-authored, pending or superseded upstream.** `GET /metrics`, `STT_BASE_URL` and
+  the `booking.reminder` webhook event are ours and still open upstream. Three fixes
+  were solved upstream by a different patch: booking emails naming the booking's host
+  ([#50]; upstream #48), the booking-page honeypot ([#51]; upstream #33) and listing
+  every calendar on a CalDAV account ([#54]; upstream #42). The sync keeps this fork's
+  CalDAV listing (origin-pinned, selection-validated, no migration) and does not take
+  #42's `caldav_home_url` column; it takes #33's API field name (`hp_extra`) under this
+  fork's autofill-proof markup; and #48 and #50 were the same fix.
 - **Fork-only, and staying that way.** PostgreSQL support, `MULTI_TENANT` and
   everything under it (the platform API, the signed session hand-off, `ADMIN_SPA`,
   `PLATFORM_RETURN_ORIGINS`, the neutral tenant root, the booking link that cannot be
@@ -47,13 +54,52 @@ Entries below are a mixture, and which is which decides where a patch should go:
 
 [#29]: https://github.com/Calnode/calnode/pull/29
 [#31]: https://github.com/Calnode/calnode/pull/31
+[#39]: https://github.com/Calnode/calnode/pull/39
 [#40]: https://github.com/Calnode/calnode/pull/40
+[#41]: https://github.com/Calnode/calnode/pull/41
+[#44]: https://github.com/Calnode/calnode/pull/44
+[#45]: https://github.com/Calnode/calnode/pull/45
 [#50]: https://github.com/Calnode/calnode/pull/50
 [#51]: https://github.com/Calnode/calnode/pull/51
 [#52]: https://github.com/Calnode/calnode/pull/52
 [#54]: https://github.com/Calnode/calnode/pull/54
 [#55]: https://github.com/Calnode/calnode/pull/55
 [#56]: https://github.com/Calnode/calnode/pull/56
+
+### Upstream sync, 2026-09-21
+
+`upstream/main` at `2c1c1e3f` merged (not rebased) onto `district`. What it brought, and
+what this fork had to do to take it:
+
+- **Availability now fails CLOSED.** A selected conflict calendar that cannot be read
+  (provider error, partial response, undecryptable credentials) makes the availability
+  check an error rather than free time, and a booking is re-checked against external
+  calendars before it is created. One unreachable calendar can therefore block a host's
+  booking until it is reconnected or deselected. This is upstream's decision
+  (`0877f7a6`, `3bb9e178`, `f909ee2c`), taken as is.
+- **Shared-calendar conflicts** (`0391583c`): a local booking of another host whose
+  destination calendar this host checks now blocks the slot. ⚠️ On PostgreSQL the
+  overlap check still holds the advisory lock of the booking's own host only, so two
+  hosts sharing a calendar are not serialised against each other.
+- **Self-service password reset** (`659626dc`): `POST /v1/auth/password/forgot` and
+  `/reset`, registered HostWorkspace-scoped like the magic link, with
+  `password_reset_tokens` as a tenant table (migration 00066, RLS policy, export order).
+  In multi-tenant mode the emailed link uses the workspace's public host, since a link on
+  the identity host could never find its token. The login page still has no link to the
+  new pages (this fork removed the dead one on 2026-09-17); `/admin/forgot-password` is
+  reachable by URL only. Only accounts with `email_login = 1` are ever emailed, which
+  excludes every account created by provisioning or the SSO hand-off.
+- **SMTP relay** (`EMAIL_SMTP_CONNECT_HOST`/`_PORT`): honoured by the environment
+  transport, the per-workspace mailers and the multi-tenant region default alike.
+- **Per-user booking accent, optional phone call, time-of-day grouping, ownership
+  transfer, timezone picker**: migrations 00067 and 00068 (upstream's 00060 and 00061,
+  renumbered because 00058-00065 are this fork's). The accent colours the hosted pages
+  only when a host picked one; the column default leaves the District palette in charge.
+  The ownership transfer's "no upcoming bookings" check binds the clock instead of
+  SQLite's `strftime('now')`, so it also runs on PostgreSQL.
+- Dependency bumps (Go modules, the frontend toolchain, Actions and base images).
+  `.github/`, `Dockerfile`, `README.md` and `SECURITY.md` keep this fork's versions;
+  the pullfrog workflow and CLA signatures stay deleted.
 
 ### Security
 - **A booker's email address is validated where it enters, and is never written into an

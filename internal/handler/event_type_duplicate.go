@@ -144,7 +144,7 @@ func (h *Handler) DuplicateEventType(w http.ResponseWriter, r *http.Request) {
 		INSERT INTO event_types (
 		  id, workspace_id, user_id, team_id, slug, name, description,
 		  duration_minutes, slot_interval_minutes,
-		  location_type, location_value,
+		  location_type, location_value, allow_phone_call,
 		  routing_mode, rr_strategy,
 		  buffer_before_minutes, buffer_after_minutes,
 		  min_notice_minutes, max_future_days, max_active_bookings, seat_limit,
@@ -155,7 +155,7 @@ func (h *Handler) DuplicateEventType(w http.ResponseWriter, r *http.Request) {
 		SELECT
 		  ?, workspace_id, user_id, team_id, ?, name, description,
 		  duration_minutes, slot_interval_minutes,
-		  location_type, location_value,
+		  location_type, location_value, allow_phone_call,
 		  routing_mode, rr_strategy,
 		  buffer_before_minutes, buffer_after_minutes,
 		  min_notice_minutes, max_future_days, max_active_bookings, seat_limit,

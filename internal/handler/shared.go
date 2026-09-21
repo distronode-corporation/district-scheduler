@@ -48,6 +48,13 @@ type shared struct {
 	// tenant that has none. This field is written once, at boot, and never swapped.
 	envMailer mailer.Mailer
 
+	// smtpConnectHost/Port are EMAIL_SMTP_CONNECT_HOST/PORT: a TCP relay dialed in
+	// place of the SMTP host, applied by h.BuildMailer to every SMTP transport the
+	// process builds (environment, each workspace's saved settings, test sends). One
+	// process-wide value from the environment, so it lives here rather than per request.
+	smtpConnectHost string
+	smtpConnectPort string
+
 	// The per-workspace runtime state (D7). Each is built lazily from THAT
 	// workspace's server_settings row through the bound handle, and replaced when
 	// that workspace saves its settings. One entry keyed "" in single-tenant mode.

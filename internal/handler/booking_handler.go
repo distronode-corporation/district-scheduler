@@ -451,6 +451,7 @@ var errPaymentRequired = errors.New("this event requires payment; please book on
 // the direct booking page (book.go) always had. A future caller now gets both is_active
 // and is_public enforced by construction, not by remembering to add the check.
 type bookableEventType struct {
+	AllowPhoneCall      bool
 	ID                  string
 	UserID              string
 	Name                string
@@ -483,12 +484,12 @@ func (h *Handler) loadBookableEventType(ctx context.Context, slug string) (*book
 	var isActive, isPublic, showTaken int
 	err := h.db.QueryRowContext(ctx, `
 		SELECT id, user_id, name, duration_minutes, slot_interval_minutes,
-		       location_type, location_value, routing_mode, rr_strategy,
+		       location_type, location_value, allow_phone_call, routing_mode, rr_strategy,
 		       buffer_before_minutes, buffer_after_minutes, min_notice_minutes, max_future_days,
 		       is_active, is_public, show_taken_slots, max_active_bookings, price_cents, currency
 		FROM event_types WHERE slug = ?`, slug).
 		Scan(&et.ID, &et.UserID, &et.Name, &et.DurationMinutes, &et.SlotIntervalMinutes,
-			&et.LocationType, &et.LocationValue, &et.RoutingMode, &et.RRStrategy,
+			&et.LocationType, &et.LocationValue, &et.AllowPhoneCall, &et.RoutingMode, &et.RRStrategy,
 			&et.BufferBeforeMinutes, &et.BufferAfterMinutes, &et.MinNoticeMinutes, &et.MaxFutureDays,
 			&isActive, &isPublic, &showTaken, &et.MaxActiveBookings, &et.PriceCents, &et.Currency)
 	if err != nil || isActive == 0 || isPublic == 0 {
@@ -547,6 +548,13 @@ func (h *Handler) createBookingForSlug(ctx context.Context, slug string, startAt
 	if err := h.validateBookingTime(ctx, et, et.RoutingMode, candidates, required, startAt.UTC(), endAt); err != nil {
 		return nil, err
 	}
+	candidates, optional, err = h.calendarFreeHosts(ctx, et, candidates, required, optional, startAt.UTC(), endAt)
+	if err != nil {
+		if !errors.Is(err, errSlotUnavailable) {
+			h.logger.ErrorContext(ctx, "booking calendar check failed", "error", err)
+		}
+		return nil, err
+	}
 	b, err := h.bookingSvc.Create(ctx, booking.CreateParams{
 		EventTypeID:         et.ID,
 		HostIDs:             candidates,
@@ -557,6 +565,7 @@ func (h *Handler) createBookingForSlug(ctx context.Context, slug string, startAt
 		StartAt:             startAt.UTC(),
 		EndAt:               endAt,
 		LocationValue:       locValue,
+		LocationType:        et.LocationType,
 		Organizer:           organizer,
 		Answers:             answers,
 		MaxActivePerInvitee: et.MaxActiveBookings,
@@ -592,6 +601,7 @@ type bookingJSON struct {
 	Status             string         `json:"status"`
 	CancellationReason string         `json:"cancellation_reason,omitempty"`
 	LocationValue      string         `json:"location_value,omitempty"`
+	LocationType       string         `json:"location_type,omitempty"`
 	CreatedAt          string         `json:"created_at"`
 	UpdatedAt          string         `json:"updated_at"`
 	PaymentStatus      string         `json:"payment_status,omitempty" jsonschema:"payment state for paid event types: paid, refunded, or pending; absent for free bookings"`
@@ -618,6 +628,7 @@ func toBookingJSON(b *booking.Booking) bookingJSON {
 		Status:             b.Status,
 		CancellationReason: b.CancellationReason,
 		LocationValue:      b.LocationValue,
+		LocationType:       b.LocationType,
 		CreatedAt:          b.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:          b.UpdatedAt.UTC().Format(time.RFC3339),
 	}
@@ -679,6 +690,7 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 		StartAt       string `json:"start_at"`
 		Name          string `json:"name"`
 		Email         string `json:"email"`
+		Phone         string `json:"phone"`
 		Timezone      string `json:"timezone"`
 		// Language is the resolved page locale code (e.g. "es") the client already knows —
 		// sent explicitly rather than re-derived from Accept-Language/cookie server-side,
@@ -686,7 +698,10 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 		// calnode_lang cookie, and a site owner's forced lang= override wouldn't be visible
 		// from headers alone. See internal-docs/i18n-plan.md.
 		Language string `json:"language"`
-		Company  string `json:"company"` // honeypot: a hidden form field; must stay empty
+		// Deliberately NOT named "company": browsers map that to the organization
+		// autofill entry (ignoring autocomplete="off") and fill this invisible field
+		// for real humans, who are then rejected as bots (#33).
+		Honeypot string `json:"hp_extra"`
 		Answers  []struct {
 			QuestionID string `json:"question_id"`
 			Value      string `json:"value"`
@@ -699,7 +714,7 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 
 	// Honeypot: a field hidden from humans on the booking form. A non-empty value
 	// means an automated submission — reject with a generic error.
-	if strings.TrimSpace(req.Company) != "" {
+	if strings.TrimSpace(req.Honeypot) != "" {
 		h.logger.InfoContext(r.Context(), "booking rejected: honeypot filled")
 		h.writeError(w, http.StatusBadRequest, "invalid submission")
 		return
@@ -819,6 +834,15 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve candidate hosts by routing mode: rotation hosts for round-robin,
 	// required hosts otherwise. Archived hosts are excluded by resolveEventTypeHosts.
+	req.Phone = strings.TrimSpace(req.Phone)
+	if req.Phone != "" {
+		if !et.AllowPhoneCall || !onlineMeetingLocation(et.LocationType) || len(req.Phone) > 40 || !validPhone(req.Phone) {
+			h.writeError(w, http.StatusBadRequest, "invalid telephone number")
+			return
+		}
+		et.LocationType = "phone"
+		locValue = "tel:" + req.Phone
+	}
 	hosts, err := h.resolveEventTypeHosts(r.Context(), et.ID)
 	if err != nil {
 		h.logger.ErrorContext(r.Context(), "create booking: resolve hosts", "error", err)
@@ -836,6 +860,20 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	candidates, optional, err = h.calendarFreeHosts(r.Context(), et, candidates, required, optional, startAt.UTC(), endAt)
+	if err != nil {
+		switch {
+		case errors.Is(err, errSlotUnavailable):
+			h.writeError(w, http.StatusConflict, "this slot is no longer available; please select another time")
+		case errors.Is(err, errCalendarUnavailable):
+			h.logger.ErrorContext(r.Context(), "booking calendar check failed", "error", err)
+			h.writeError(w, http.StatusServiceUnavailable, errCalendarUnavailable.Error())
+		default:
+			h.logger.ErrorContext(r.Context(), "booking calendar check failed", "error", err)
+			h.writeError(w, http.StatusInternalServerError, "could not complete the booking")
+		}
+		return
+	}
 	b, err := h.bookingSvc.Create(r.Context(), booking.CreateParams{
 		EventTypeID:   et.ID,
 		HostIDs:       candidates,
@@ -846,6 +884,7 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 		StartAt:       startAt.UTC(),
 		EndAt:         endAt,
 		LocationValue: locValue,
+		LocationType:  et.LocationType,
 		Organizer: booking.Attendee{
 			Name:         req.Name,
 			Email:        req.Email,
@@ -1001,6 +1040,9 @@ func (h *Handler) hostBookingData(ctx context.Context, base mailer.BookingData, 
 // createHostEventsAndNotify), since only the calendar API call itself produces it.
 func (h *Handler) mintMeetingLink(ctx context.Context, b *booking.Booking, in bookingConfirmationInput, bData *mailer.BookingData, hosts []assignedHost) (meetURL string, autoGenMeet bool, livekitHostURL string) {
 	gc := h.getCal()
+	if in.LocationType == "phone" {
+		meetURL = b.LocationValue
+	}
 	if gc != nil && onlineMeetingLocation(in.LocationType) {
 		if _, primaryProvider, perr := gc.Connected(ctx, primaryHost(hosts).UserID); perr == nil {
 			autoGenMeet = providerMintsPlatform(in.LocationType, primaryProvider)

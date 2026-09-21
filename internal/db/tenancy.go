@@ -48,6 +48,7 @@ var TenantTables = []string{
 	"notes",
 	"oauth_access_tokens",
 	"oauth_auth_codes",
+	"password_reset_tokens",
 	"recordings",
 	"server_settings",
 	"sessions",

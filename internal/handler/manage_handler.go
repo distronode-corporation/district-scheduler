@@ -27,13 +27,15 @@ var manageTmpl = template.Must(template.Must(template.New("manage").Funcs(templa
 }).Parse(sharedPartialsSrc)).Parse(manageTmplSrc))
 
 type managePageData struct {
-	Token         string
-	BookingID     string
-	EventTypeName string
-	EventTypeSlug string
-	HostName      string
-	HostInitial   string
-	AvatarURL     string
+	AccentColor      string
+	AccentForeground string
+	Token            string
+	BookingID        string
+	EventTypeName    string
+	EventTypeSlug    string
+	HostName         string
+	HostInitial      string
+	AvatarURL        string
 	// SoleHostName is the host's name when this booking has exactly one, else "" — see
 	// bookPageData.SoleHostName. HostName can be a group label ("Alex, Sam & 2 others"),
 	// which no "%s has no available times" sentence can use grammatically.
@@ -96,18 +98,27 @@ func (h *Handler) ManagePage(w http.ResponseWriter, r *http.Request) {
 
 	var etName, etSlug, locType, locValue string
 	var durMins, maxDays, minNotice int
-	var hostName string
+	var hostName, accentColor string
 	// u is the booking's primary host (bookings.host_id), not event_types.user_id: the
-	// owner of a round-robin or multi-host event type may not be attending at all.
+	// owner of a round-robin or multi-host event type may not be attending at all. The
+	// accent colour is the event-type OWNER's, as on the booking page this booking was
+	// made from (book.go), so the manage page wears the same colour.
 	if err := h.db.QueryRowContext(r.Context(), `
 		SELECT et.name, et.slug, et.duration_minutes, et.max_future_days, et.min_notice_minutes,
-		       et.location_type, COALESCE(et.location_value,''), u.name
-		FROM event_types et JOIN users u ON u.id = ?
+		       et.location_type, COALESCE(et.location_value,''), u.name, owner.booking_accent
+		FROM event_types et JOIN users u ON u.id = ? JOIN users owner ON owner.id = et.user_id
 		WHERE et.id = ?`, b.HostID, b.EventTypeID).
-		Scan(&etName, &etSlug, &durMins, &maxDays, &minNotice, &locType, &locValue, &hostName); err != nil {
+		Scan(&etName, &etSlug, &durMins, &maxDays, &minNotice, &locType, &locValue, &hostName, &accentColor); err != nil {
 		h.logger.ErrorContext(r.Context(), "manage page: load event type", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
+	}
+
+	if b.LocationType != "" {
+		locType = b.LocationType
+	}
+	if b.LocationValue != "" {
+		locValue = b.LocationValue
 	}
 
 	// Show the actual assigned host(s) for this booking, not the event-type owner
@@ -136,22 +147,24 @@ func (h *Handler) ManagePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := managePageData{
-		Token:           token,
-		BookingID:       b.ID,
-		EventTypeName:   etName,
-		EventTypeSlug:   etSlug,
-		HostName:        hostName,
-		HostInitial:     hostInitial,
-		AvatarURL:       avatarURL,
-		SoleHostName:    soleHost,
-		MinNoticeLabel:  noticeLabel(minNotice, loc),
-		DurationLabel:   durationLabel(durMins, loc),
-		LocationLabel:   locationLabel(locType, locValue, loc),
-		MaxFutureDays:   maxDays,
-		DurationMinutes: durMins,
-		CurrentStartISO: b.StartAt.UTC().Format(time.RFC3339),
-		OrganizerTZ:     orgTZ,
-		Status:          b.Status,
+		AccentColor:      chosenAccent(accentColor),
+		AccentForeground: accentForeground(accentColor),
+		Token:            token,
+		BookingID:        b.ID,
+		EventTypeName:    etName,
+		EventTypeSlug:    etSlug,
+		HostName:         hostName,
+		HostInitial:      hostInitial,
+		AvatarURL:        avatarURL,
+		SoleHostName:     soleHost,
+		MinNoticeLabel:   noticeLabel(minNotice, loc),
+		DurationLabel:    durationLabel(durMins, loc),
+		LocationLabel:    locationLabel(locType, locValue, loc),
+		MaxFutureDays:    maxDays,
+		DurationMinutes:  durMins,
+		CurrentStartISO:  b.StartAt.UTC().Format(time.RFC3339),
+		OrganizerTZ:      orgTZ,
+		Status:           b.Status,
 	}
 	h.renderManage(w, r, data, loc)
 }

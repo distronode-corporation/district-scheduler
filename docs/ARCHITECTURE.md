@@ -318,6 +318,12 @@ the platform/recovery secret doesn't expose secrets.
   connector (§19) — those authenticate with a bearer token, not the session cookie, so
   revoking sessions alone would leave an agent holding the authority just withdrawn.
   Both deletes run in one transaction, so "revoked" is never half-true.
+  This endpoint signs someone out; it does not offboard them. Offboarding is archive
+  (the "Offboarding = archive" bullet below), which ends MCP access on its own: the OAuth bearer check and the
+  refresh grant both refuse an archived member. API keys
+  (`cno_`) are deliberately left alone here, which is safe only because an archived
+  member's keys are already refused (the key path in `auth.go`), so an offboarded
+  member's keys stop working through archive, not through this endpoint.
 - **Signed session hand-off** (`GET /v1/auth/sso?token=<jwt>`, `sso.go`) lets an
   external identity system that has already authenticated someone drop them into a
   Calnode session without a second login. **Off unless `CALNODE_SSO_SHARED_SECRET` is
@@ -356,6 +362,8 @@ the platform/recovery secret doesn't expose secrets.
 ---
 
 ## 7. Routing — the host-roles model
+
+An administrator who owns an event can transfer it to an active required host with `POST /v1/event-types/{slug}/transfer`. The request supplies `expected_owner_id` and `new_owner_id`. Upcoming bookings prevent transfer. The event ID, slug, and historical booking hosts are preserved. Event-specific availability rules move to the new owner; global availability and calendar connections do not.
 
 An event type owns a **host list** (`event_type_hosts`): each row = (user, role,
 priority), role ∈ **required | rotation | optional**. The editor authors these
@@ -399,6 +407,8 @@ members.
 ---
 
 ## 8. Slot generation
+
+Booking and rescheduling pages and the embed widget group the displayed starts into morning (before 12:00), afternoon (12:00–16:59), and evening (17:00 onward), in the selected timezone. Only groups with slots are shown. The time grid has no nested scrolling region. Taken slots remain disabled when the event opts to display them.
 
 - Engine: `internal/slots/generate.go`. Input: `[]HostAvailability` (rules,
   overrides, busy intervals, **Role**), `EventConfig` (duration, interval, buffers,
@@ -534,6 +544,10 @@ them - the most common "why can't I see those times".
 
 ## 9. Booking lifecycle
 
+New public and assistant bookings recheck selected external calendars before committing. This uses the same buffer orientation and own-event subtraction as the slots page and checks each required host; round-robin routing filters busy candidates and busy optional guests are omitted. A failed provider check rejects the request with HTTP 503 and a retry message; a busy slot returns HTTP 409. Assistant and MCP bookings keep the same distinction. The external check and database write cannot share a transaction. Rescheduling still uses the existing validation path.
+
+Google Meet and Teams event types can opt into `allow_phone_call`. Their booking page and widget then accept an optional `phone` value. A valid number selects a telephone appointment; leaving it empty preserves video. The booking stores its own location type so management pages, calendar retries, and paid confirmation do not generate a video link for a telephone appointment. Event duplication preserves the setting.
+
 `internal/booking/service.go` (transactions) + `internal/handler/booking_handler.go`
 (HTTP + async side effects).
 
@@ -613,6 +627,10 @@ committed booking) — which is why the reconciler (§11) exists.
 ---
 
 ## 10. Calendar integration (provider abstraction)
+
+The connected-provider lookup prefers the destination connection. A conflict-only connection must not select the provider used when deciding how to generate a meeting link.
+Availability checks return an error if any selected conflict calendar cannot be checked. Partial provider responses and unreadable busy periods are not treated as free time. An unavailable calendar can therefore temporarily prevent booking; reconnect it or deselect it from conflict checks to restore availability.
+Bookings also check pending local bookings owned by other accounts that use the same selected conflict calendar. This check runs inside the booking transaction, before asynchronous calendar creation can finish. Calendar identity currently includes the provider, account email, and calendar ID. ⚠️ On PostgreSQL the transaction holds the advisory lock of the booking's own host only, so two hosts that share a calendar are not serialised against each other by it.
 
 Calnode talks to calendars through a **provider abstraction**, not a single vendor:
 
@@ -816,6 +834,7 @@ as the desired state:
   genuinely broken SMTP config. Explicit credentials state intent. `GET /v1/settings/email`
   returns the live `transport`, and the admin UI badges it, so filled-in SMTP fields are
   never mistaken for SMTP delivery.
+- **TCP relay:** `EMAIL_SMTP_CONNECT_HOST` / `EMAIL_SMTP_CONNECT_PORT` are loaded by `internal/config` and passed through `SMTPConfig` / `BuildMailer` at boot and settings reload. They change only the dial address; TLS and authentication keep the original SMTP host. Active overrides are logged.
 - **The dial must stay bounded.** `defaultSMTPTimeout` once applied only via
   `conn.SetDeadline`, which runs *after* the dial returns, leaving the dial itself bounded
   by the OS SYN-retry limit (~2 min). Against a packet-dropping host that stalls the job
@@ -954,6 +973,8 @@ as the desired state:
 ---
 
 ## 15. Frontend toolchain & conventions
+
+Each account can set `booking_accent` in its profile. The default preserves the dark booking controls. Booking pages, management pages, and the embed widget use the event owner's color, with a contrasting text color chosen by luminance. The profile API accepts only six-digit hex colors. In this fork the hosted booking and management pages apply the accent only when it differs from the column default (`#111827`), so a host who never picked one keeps the page theme's primary (the District palette); the widget keeps the neutral ink either way.
 
 - Svelte 5, SvelteKit 2 (adapter-static SPA), Vite 8 (Rolldown), Tailwind v4
   (`@tailwindcss/vite`), shadcn-svelte (nova style) + bits-ui, tailwind-variants 3,

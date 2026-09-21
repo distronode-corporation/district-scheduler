@@ -224,6 +224,8 @@
           api('/v1/event-types/' + encodeURIComponent(this.slug) + '/questions'),
         ]);
         this.info = r[0];
+        this.style.setProperty('--booking-accent', this.info.booking_accent || '#111827');
+        this.style.setProperty('--booking-accent-text', this.info.booking_accent_foreground || '#ffffff');
         this.locale = this.info.locale || '';
         this.i18n = this.info.i18n || {};
         this.dow = dowLabels(this.locale);
@@ -518,7 +520,26 @@
       else if (st.day) {
         var list = (st.slotsByDay[st.day] || []).slice().sort(function (a, b) { return a.start < b.start ? -1 : 1; });
         var listEl = el('div', { class: 'slots-list' });
-        list.forEach(function (s) {
+        var periodFor = function (slot) {
+          var hour = Number(new Intl.DateTimeFormat('en-GB', {timeZone: TZ, hour: 'numeric', hourCycle: 'h23'}).format(new Date(slot.start)));
+          return hour < 12 ? 0 : hour < 17 ? 1 : 2;
+        };
+        var periods = Array.from(new Set(list.map(periodFor))).sort();
+        if (periods.indexOf(st.period) === -1) st.period = periods[0];
+        var choices = el('div', { class: 'time-periods', role: 'group', 'aria-label': t(this.i18n, 'time_period') });
+        periods.forEach(function (period) {
+          var button = el('button', { type: 'button', 'data-period': String(period), 'aria-pressed': String(period === st.period), text: t(self.i18n, ['time_morning', 'time_afternoon', 'time_evening'][period]) });
+          button.addEventListener('click', function () {
+            st.period = period;
+            self.render();
+            self.shadowRoot.querySelector('[data-period="' + period + '"]').focus();
+          });
+          choices.appendChild(button);
+        });
+        var grid = el('div', { class: 'time-grid' });
+        if (list.length) listEl.appendChild(choices);
+        listEl.appendChild(grid);
+        list.filter(function (s) { return periodFor(s) === st.period; }).forEach(function (s) {
           if (s.taken) {
             // Disabled rather than click-guarded: it keeps the same box as a bookable
             // slot and is announced as unavailable instead of read out as a plain time.
@@ -528,12 +549,12 @@
               'aria-label': timeLabel(s.start, self.locale) + ' - ' + t(self.i18n, 'slot_taken'),
             });
             d.disabled = true;
-            listEl.appendChild(d);
+            grid.appendChild(d);
             return;
           }
           var b = el('button', { class: 'slot-btn', text: timeLabel(s.start, self.locale) });
           b.addEventListener('click', function () { self.state.slot = s; self.state.view = 'form'; self.render(); });
-          listEl.appendChild(b);
+          grid.appendChild(b);
         });
         if (!list.length) {
           // Name the day, and the host when there is one: a bare "No available times."
@@ -577,12 +598,14 @@
       var back = el('button', { class: 'back-btn', html: SVG_BACK + ' ' + t(this.i18n, 'back') });
       back.addEventListener('click', function () { self.state.view = 'pick'; self.render(); });
       var form = el('form', { novalidate: 'novalidate' });
-      var hp = el('input', { type: 'text', tabindex: '-1', autocomplete: 'off' });
+      var hp = el('input', { type: 'text', name: 'hp_extra', tabindex: '-1', autocomplete: 'off' });
       form.appendChild(el('div', { 'aria-hidden': 'true', style: 'position:absolute;left:-5000px;height:0;width:0;overflow:hidden;' }, [hp]));
       var name = el('input', { type: 'text', required: 'required', autocomplete: 'name', placeholder: t(this.i18n, 'name_placeholder') });
       var email = el('input', { type: 'email', required: 'required', autocomplete: 'email', placeholder: t(this.i18n, 'email_placeholder') });
       form.appendChild(el('div', { class: 'field' }, [el('label', { text: t(this.i18n, 'name_label') }), name]));
       form.appendChild(el('div', { class: 'field' }, [el('label', { text: t(this.i18n, 'email_label') }), email]));
+      var phone = el('input', { type: 'tel', maxlength: '40', autocomplete: 'tel', id: 'phone-call-number' });
+      if (this.info.allow_phone_call) form.appendChild(el('div', { class: 'field' }, [el('label', { for: 'phone-call-number', text: t(this.i18n, 'phone_call_number') }), phone]));
       var qInputs = [];
       this.questions.forEach(function (q) {
         var inp, field;
@@ -625,7 +648,7 @@
         });
         fetch(BASE + '/v1/bookings', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ event_type_slug: self.slug, start_at: slot.start, name: name.value.trim(), email: email.value.trim().toLowerCase(), timezone: TZ, language: self.locale, company: hp.value, answers: answers }),
+          body: JSON.stringify({ event_type_slug: self.slug, start_at: slot.start, name: name.value.trim(), email: email.value.trim().toLowerCase(), phone: phone.value.trim(), timezone: TZ, language: self.locale, hp_extra: hp.value, answers: answers }),
         }).then(function (r) {
           return r.json().then(function (data) { return { ok: r.ok, status: r.status, data: data }; });
         }).then(function (res) {
