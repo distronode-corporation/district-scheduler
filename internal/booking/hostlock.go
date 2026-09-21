@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/calnode/calnode/internal/db"
 )
@@ -40,25 +41,89 @@ func lockHosts(ctx context.Context, tx *db.Tx, hostIDs ...string) error {
 		return nil
 	}
 
-	// Sorted and deduplicated. Two transactions that needed the same two hosts in
-	// opposite orders would otherwise deadlock, and Postgres resolves a deadlock by
-	// killing one of them — a 500 on a booking that should have been a 409 or a
-	// success. Sorting is done on a copy: Create's HostIDs arrive in round-robin
-	// priority order and that order decides who gets the booking.
-	ids := slices.Clone(hostIDs)
-	slices.Sort(ids)
-	ids = slices.Compact(ids)
-
-	for _, id := range ids {
-		if id == "" {
-			continue
+	var hosts []string
+	for _, id := range hostIDs {
+		if id != "" {
+			hosts = append(hosts, id)
 		}
-		if _, err := tx.ExecContext(ctx,
-			`SELECT pg_advisory_xact_lock(?)`, hostLockKey(id)); err != nil {
-			return fmt.Errorf("booking: lock host %s: %w", id, err)
+	}
+	if len(hosts) == 0 {
+		return nil
+	}
+
+	// One key per host, plus one per calendar any of these hosts checks for conflicts or
+	// books into. hostBusy (since upstream's shared-calendar check) also counts another
+	// host's booking when that host's destination calendar is one this host checks, so
+	// two hosts sharing a calendar race on that calendar, not on either host: locking the
+	// hosts alone let both read "free" and both insert (TestSharedCalendarAtomicConflict).
+	// Every side of such a pair names the shared calendar here, whichever role it plays
+	// for them, so both take its key.
+	keys := make([]int64, 0, len(hosts))
+	for _, id := range hosts {
+		keys = append(keys, hostLockKey(id))
+	}
+	calKeys, err := calendarLockKeys(ctx, tx, hosts)
+	if err != nil {
+		return err
+	}
+	keys = append(keys, calKeys...)
+
+	// Sorted and deduplicated, by KEY. Two transactions that needed the same two keys in
+	// opposite orders would otherwise deadlock, and Postgres resolves a deadlock by
+	// killing one of them: a 500 on a booking that should have been a 409 or a success.
+	// Any one total order works as long as every caller uses it, and every caller comes
+	// through here. Sorting is done on a copy: Create's HostIDs arrive in round-robin
+	// priority order and that order decides who gets the booking.
+	slices.Sort(keys)
+	keys = slices.Compact(keys)
+
+	for _, key := range keys {
+		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(?)`, key); err != nil {
+			return fmt.Errorf("booking: lock hosts %v: %w", hosts, err)
 		}
 	}
 	return nil
+}
+
+// calendarLockKeys returns one advisory-lock key per distinct calendar (provider,
+// account email, calendar id: the identity hostBusy compares) that any of hostIDs has
+// selected for conflict checks or as its destination.
+func calendarLockKeys(ctx context.Context, tx *db.Tx, hostIDs []string) ([]int64, error) {
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(hostIDs)), ",")
+	args := make([]any, len(hostIDs))
+	for i, id := range hostIDs {
+		args[i] = id
+	}
+	// #nosec G202 -- only "?" placeholders are concatenated; every value is bound.
+	rows, err := tx.QueryContext(ctx, `
+		SELECT DISTINCT provider, COALESCE(account_email, ''), calendar_id
+		FROM connection_calendars
+		WHERE user_id IN (`+placeholders+`) AND (check_conflicts = 1 OR is_destination = 1)`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("booking: load calendars to lock: %w", err)
+	}
+	defer rows.Close() // #nosec G307 -- read-only cursor; rows.Err below reports iteration failures
+	var keys []int64
+	for rows.Next() {
+		var provider, account, calendarID string
+		if err := rows.Scan(&provider, &account, &calendarID); err != nil {
+			return nil, fmt.Errorf("booking: scan calendar to lock: %w", err)
+		}
+		keys = append(keys, calendarLockKey(provider, account, calendarID))
+	}
+	return keys, rows.Err()
+}
+
+// calendarLockDomain keeps calendar keys disjoint from host keys (hostLockDomain).
+const calendarLockDomain = "calnode:booking:calendar:"
+
+// calendarLockKey derives a calendar's advisory-lock key the way hostLockKey derives a
+// host's, from the three fields hostBusy matches on, NUL-separated so no two distinct
+// triples concatenate to the same string.
+func calendarLockKey(provider, account, calendarID string) int64 {
+	sum := sha256.Sum256([]byte(calendarLockDomain + provider + "\x00" + account + "\x00" + calendarID))
+	// #nosec G115 -- same reinterpretation as hostLockKey: uint64 -> int64 keeps all 64 bits.
+	return int64(binary.BigEndian.Uint64(sum[:8]))
 }
 
 // hostLockKey maps a host id onto the single int64 key pg_advisory_xact_lock takes.

@@ -231,7 +231,8 @@ func (c *Client) loadConn(ctx context.Context, userID string, checkConflicts, is
 // conflictConns returns one entry per calendar to read for conflicts, across every CalDAV
 // connection the user has with check_conflicts = 1, so a user can connect several CalDAV
 // accounts and tick several calendars in each. Entries of one account share its credentials and
-// differ only in calURL. Decrypt failures on one row are logged and skipped (fail-open).
+// differ only in calURL. A row whose credentials cannot be decrypted is an error, so the
+// availability check reports itself incomplete rather than reading that account as free.
 func (c *Client) conflictConns(ctx context.Context, userID string) ([]conn, error) {
 	rows, err := c.db.QueryContext(ctx, `
 		SELECT id, COALESCE(account_email,''), access_token_enc, calendar_id
@@ -271,8 +272,7 @@ func (c *Client) conflictConns(ctx context.Context, userID string) ([]conn, erro
 		}
 		pw, err := c.decrypt(d.pwEnc)
 		if err != nil {
-			c.logger.Warn("caldav: skipping connection with bad credentials", "user_id", userID, "error", err)
-			continue
+			return nil, err
 		}
 		for _, calURL := range calIDs {
 			conns = append(conns, conn{id: d.id, username: d.username, password: string(pw), calURL: calURL})

@@ -195,7 +195,7 @@ func (h *Handler) getMailer() mailer.Mailer {
 			}
 			return &mailer.Noop{}
 		}
-		m, _ := BuildMailer(*cfg)
+		m, _ := h.BuildMailer(*cfg)
 		return m
 	})
 }

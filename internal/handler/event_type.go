@@ -20,6 +20,7 @@ const (
 )
 
 type eventTypeJSON struct {
+	AllowPhoneCall      bool    `json:"allow_phone_call"`
 	ID                  string  `json:"id"`
 	Slug                string  `json:"slug"`
 	Name                string  `json:"name"`
@@ -88,7 +89,7 @@ func scanEventTypeRow(s rowScanner, trailing ...any) (*eventTypeJSON, error) {
 	dests := []any{
 		&et.ID, &et.Slug, &et.Name, &desc,
 		&et.DurationMinutes, &et.SlotIntervalMinutes,
-		&et.LocationType, &locVal,
+		&et.LocationType, &locVal, &et.AllowPhoneCall,
 		&et.RoutingMode, &et.RRStrategy,
 		&et.BufferBeforeMinutes, &et.BufferAfterMinutes,
 		&et.MinNoticeMinutes, &et.MaxFutureDays, &et.MaxActiveBookings,
@@ -147,7 +148,7 @@ func scanEventTypeRow(s rowScanner, trailing ...any) (*eventTypeJSON, error) {
 
 const etColumns = `id, slug, name, description,
 	duration_minutes, slot_interval_minutes,
-	location_type, location_value,
+	location_type, location_value, allow_phone_call,
 	routing_mode, rr_strategy,
 	buffer_before_minutes, buffer_after_minutes,
 	min_notice_minutes, max_future_days, max_active_bookings,
@@ -223,6 +224,7 @@ func (h *Handler) CreateEventType(w http.ResponseWriter, r *http.Request) {
 		MinNoticeMinutes    *int    `json:"min_notice_minutes"`
 		MaxFutureDays       *int    `json:"max_future_days"`
 		MaxActiveBookings   *int    `json:"max_active_bookings"`
+		AllowPhoneCall      *bool   `json:"allow_phone_call"`
 		ShowTakenSlots      *bool   `json:"show_taken_slots"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -298,6 +300,11 @@ func (h *Handler) CreateEventType(w http.ResponseWriter, r *http.Request) {
 	if req.ShowTakenSlots != nil && *req.ShowTakenSlots {
 		showTaken = 1
 	}
+	// Same shape as showTaken, for the same reason: SMALLINT on PostgreSQL.
+	allowPhone := 0
+	if req.AllowPhoneCall != nil && *req.AllowPhoneCall {
+		allowPhone = 1
+	}
 
 	id := uid.New()
 	tx, err := h.db.BeginTx(r.Context(), nil)
@@ -311,13 +318,13 @@ func (h *Handler) CreateEventType(w http.ResponseWriter, r *http.Request) {
 	_, err = tx.ExecContext(r.Context(), `
 		INSERT INTO event_types
 		  (id, user_id, slug, name, description, duration_minutes,
-		   slot_interval_minutes, location_type, location_value,
+		   slot_interval_minutes, location_type, location_value, allow_phone_call,
 		   routing_mode, buffer_before_minutes, buffer_after_minutes,
 		   min_notice_minutes, max_future_days, max_active_bookings, show_taken_slots,
 		   msg_confirmation, msg_cancellation, msg_reschedule, msg_reminder)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, user.ID, req.Slug, req.Name, req.Description,
-		req.DurationMinutes, slotInterval, locType, req.LocationValue,
+		req.DurationMinutes, slotInterval, locType, req.LocationValue, allowPhone,
 		routingMode, bufBefore, bufAfter, minNotice, maxFuture, maxActive, showTaken,
 		defaultMsgConfirmation, defaultMsgCancellation, defaultMsgReschedule, defaultMsgReminder)
 	if err != nil {
@@ -449,6 +456,7 @@ func (h *Handler) PatchEventType(w http.ResponseWriter, r *http.Request) {
 		MaxActiveBookings   *int    `json:"max_active_bookings"`
 		IsActive            *bool   `json:"is_active"`
 		IsPublic            *bool   `json:"is_public"`
+		AllowPhoneCall      *bool   `json:"allow_phone_call"`
 		ShowTakenSlots      *bool   `json:"show_taken_slots"`
 		Archived            *bool   `json:"archived"`
 		MsgConfirmation     *string `json:"msg_confirmation"`
@@ -593,6 +601,15 @@ func (h *Handler) PatchEventType(w http.ResponseWriter, r *http.Request) {
 			v = 1
 		}
 		set("is_public", v)
+	}
+	if req.AllowPhoneCall != nil {
+		// An int, never a Go bool: the column is SMALLINT on PostgreSQL, and pgx refuses to
+		// encode a bool into int2 (SQLite accepted either).
+		v := 0
+		if *req.AllowPhoneCall {
+			v = 1
+		}
+		set("allow_phone_call", v)
 	}
 	if req.ShowTakenSlots != nil {
 		v := 0

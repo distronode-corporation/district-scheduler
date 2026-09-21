@@ -157,6 +157,11 @@
   "assistant_status_slots": "Kontrollerar tillgängliga tider…",
   "assistant_status_book": "Bokar…",
   "assistant_status_working": "Arbetar…",
+  "time_period": "Tid på dagen",
+  "time_morning": "Förmiddag",
+  "time_afternoon": "Eftermiddag",
+  "time_evening": "Kväll",
+  "phone_call_number": "Telefonnummer (valfritt, för ett telefonsamtal)",
 
   "index_title": "Boka ett möte",
   "index_intro": "Välj en mötestyp för att se lediga tider.",

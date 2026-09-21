@@ -432,13 +432,15 @@ func TestPostgres_PlatformMembers_mintKeyAuthenticatesAsThatUser(t *testing.T) {
 		t.Errorf("a platform-minted key has managed = %d; want 1", managed)
 	}
 
-	// RequireAuth resolves it to that user with that user's flags. GetMe reads only the
-	// request context, so this asserts the credential lookup and nothing else.
+	// RequireAuth resolves it to that user with that user's flags. Wired as server.go wires
+	// it, through CredentialWorkspace: since upstream's booking accent, GetMe also reads the
+	// user's row, which on a multi-tenant PostgreSQL handle is only visible once the
+	// request is bound to the key's workspace.
 	whoami := func(key string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
 		req.Header.Set("X-API-Key", key)
 		rec := httptest.NewRecorder()
-		h.RequireAuth(h.GetMe)(rec, req)
+		h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*handler.Handler).GetMe))(rec, req)
 		return rec
 	}
 	rec = whoami(minted.APIKey)

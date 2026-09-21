@@ -157,6 +157,11 @@
   "assistant_status_slots": "Vérification des disponibilités…",
   "assistant_status_book": "Réservation…",
   "assistant_status_working": "En cours…",
+  "phone_call_number": "Téléphone (facultatif, pour un appel)",
+  "time_period": "Moment de la journée",
+  "time_morning": "Matin",
+  "time_afternoon": "Après-midi",
+  "time_evening": "Soir",
 
   "index_title": "Réserver une réunion",
   "index_intro": "Choisissez un type de réunion pour voir les créneaux disponibles.",

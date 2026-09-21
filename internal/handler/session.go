@@ -138,9 +138,21 @@ func (h *Handler) RevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 
 	var sessionRes sql.Result
 	if self {
+		// The session spared is the one the caller AUTHENTICATED WITH, which is not the
+		// same thing as the one it happened to send.
+		//
+		// ⛔ The API-key test mirrors RequireAuth's own precedence: it tries the key
+		// first, so a request carrying both is an API-key request and its cookie played
+		// no part in authenticating it. Reading the cookie unconditionally would spare a
+		// session on the strength of a header the caller was not authenticated by — so a
+		// script holding an API key and a stale cookie would ask to end all its sessions,
+		// be told it had, and leave one alive. Silently, because the response counts what
+		// was deleted and not what was kept.
 		current := ""
-		if c, cerr := r.Cookie(sessionCookieName); cerr == nil {
-			current = c.Value
+		if extractAPIKey(r) == "" {
+			if c, cerr := r.Cookie(sessionCookieName); cerr == nil {
+				current = c.Value
+			}
 		}
 		sessionRes, err = tx.ExecContext(r.Context(),
 			`DELETE FROM sessions WHERE user_id = ? AND id <> ?`, targetID, current)

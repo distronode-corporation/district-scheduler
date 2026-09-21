@@ -83,6 +83,7 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *db.DB, logger *sl
 		h.SetMetricsAnonymousNetworks(nets)
 	}
 	h.SetSTTBaseURL(cfg.STTBaseURL)
+	h.SetSMTPConnectAddress(cfg.SMTPConnectHost, cfg.SMTPConnectPort)
 	h.SetDemoMode(cfg.DemoMode)
 	h.SetDemoResetInterval(cfg.DemoResetInterval)
 
@@ -146,16 +147,17 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *db.DB, logger *sl
 	case dbSMTP != nil:
 		// BuildMailer, not NewSMTP directly, so boot and the settings-save path pick the
 		// transport by the same rule. A Resend API key here means HTTPS delivery.
-		m, transport := handler.BuildMailer(*dbSMTP)
+		m, transport := h.BuildMailer(*dbSMTP)
 		live.Swap(m)
 		logger.Info("mailer: configured from database",
 			"transport", string(transport), "host", dbSMTP.Host, "port", dbSMTP.Port)
 
 	case cfg.SMTPHost != "":
-		env := mailer.NewSMTP(
-			cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass,
-			cfg.SMTPTLS, cfg.SMTPStartTLS, cfg.EmailFrom, cfg.EmailFromName,
-		)
+		// h.BuildMailer, so EMAIL_SMTP_CONNECT_HOST/PORT apply to this transport too.
+		env, _ := h.BuildMailer(handler.SMTPConfig{
+			Host: cfg.SMTPHost, Port: cfg.SMTPPort, User: cfg.SMTPUser, Pass: cfg.SMTPPass,
+			TLS: cfg.SMTPTLS, StartTLS: cfg.SMTPStartTLS, From: cfg.EmailFrom, FromName: cfg.EmailFromName,
+		})
 		live.Swap(env)
 		// The same object again, kept unswappable, as the region default for
 		// multi-tenant workspaces that carry no email settings of their own. Without
@@ -413,6 +415,11 @@ func New(ctx context.Context, cfg *config.Config, db *db.DB, logger *slog.Logger
 	mux.HandleFunc("POST /v1/auth/login/email", loginRL(h.Scoped(handler.HostWorkspace, (*H).LoginEmail)))
 	mux.HandleFunc("POST /v1/auth/magic-link/request", loginRL(h.Scoped(handler.HostWorkspace, (*H).RequestMagicLink)))
 	mux.HandleFunc("GET /v1/auth/magic-link/verify", loginRL(h.Scoped(handler.HostWorkspace, (*H).VerifyMagicLink)))
+	// Self-service password reset (upstream #34). Host-scoped like the magic link it
+	// mirrors: the account is looked up by email in the workspace the host names, and the
+	// emailed link is built on that workspace's public host.
+	mux.HandleFunc("POST /v1/auth/password/forgot", loginRL(h.Scoped(handler.HostWorkspace, (*H).RequestPasswordReset)))
+	mux.HandleFunc("POST /v1/auth/password/reset", loginRL(h.Scoped(handler.HostWorkspace, (*H).ResetPassword)))
 
 	// OAuth login (browser sessions for admin UI).
 	authRL := RateLimit(10, time.Minute)
@@ -579,6 +586,7 @@ func New(ctx context.Context, cfg *config.Config, db *db.DB, logger *slog.Logger
 	mux.HandleFunc("PATCH /v1/event-types/{slug}", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).PatchEventType)))
 	mux.HandleFunc("DELETE /v1/event-types/{slug}", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).DeleteEventType)))
 	mux.HandleFunc("POST /v1/event-types/{slug}/duplicate", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).DuplicateEventType)))
+	mux.HandleFunc("POST /v1/event-types/{slug}/transfer", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).TransferEventType)))
 	mux.HandleFunc("GET /v1/event-types/{slug}/hosts", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).ListEventTypeHosts)))
 	mux.HandleFunc("PUT /v1/event-types/{slug}/hosts", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).SetEventTypeHosts)))
 	testEmailRL := RateLimit(10, time.Minute)

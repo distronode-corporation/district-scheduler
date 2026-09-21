@@ -123,6 +123,28 @@ func TestRevokeAllSessions_apiKeyCallerRevokesEveryone(t *testing.T) {
 	}
 }
 
+// ⛔ An API-key request that ALSO carries a cookie is still an API-key request —
+// RequireAuth tries the key first, so the cookie played no part in authenticating it and
+// there is no current session to spare. The test above sends a key and no cookie, so it
+// passes whether the handler reads the cookie or not; this is the case that separates
+// them. Sparing a session on the strength of a header the caller was not authenticated by
+// would leave a script that asked to end all its sessions with one alive, and the response
+// counts what was deleted, not what was kept, so nothing would say so.
+func TestRevokeAllSessions_apiKeyCallerWithAStaleCookieStillRevokesEveryone(t *testing.T) {
+	h, database, ownerKey, ownerID := setupWorkspaceWithDB(t)
+	seedSessionID(t, database, "sess-stale", ownerID)
+	seedSessionID(t, database, "sess-other", ownerID)
+
+	rec := revokeAll(h, "", ownerKey, "sess-stale")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 — %s", rec.Code, rec.Body.String())
+	}
+	if n := countSessions(t, database, ownerID); n != 0 {
+		t.Errorf("sessions left = %d; want 0 — the cookie is not what authenticated this "+
+			"caller, so no session is the \"current\" one", n)
+	}
+}
+
 // An MCP connector holds a bearer token, not a cookie. Revoking sessions and leaving it
 // would hand back exactly the access that was just withdrawn.
 func TestRevokeAllSessions_cutsMCPTokensToo(t *testing.T) {
@@ -177,6 +199,29 @@ func TestRevokeAllSessions_memberCannotTargetAnotherUser(t *testing.T) {
 	}
 	if n := countSessions(t, database, "member-2"); n != 1 {
 		t.Errorf("victim sessions = %d; want 1 (untouched)", n)
+	}
+}
+
+// ⛔ A member gets the SAME answer for a user that exists and one that does not, which is
+// what stops this endpoint being a user-id oracle. The handler checks the actor's tier
+// before it loads the target for exactly this reason, and the test above cannot see that
+// — it names a real user, so it would pass just as well with the checks in either order.
+func TestRevokeAllSessions_memberCannotProbeForUserIDs(t *testing.T) {
+	h, database, _, _ := setupWorkspaceWithDB(t)
+	seedRoleUser(t, database, "member-1", "m1@example.com", 0, 0, "member-1-key")
+	seedRoleUser(t, database, "member-2", "m2@example.com", 0, 0, "")
+
+	real := revokeAll(h, `{"user_id":"member-2"}`, "member-1-key", "")
+	fake := revokeAll(h, `{"user_id":"no-such-user-at-all"}`, "member-1-key", "")
+
+	if real.Code != http.StatusForbidden || fake.Code != http.StatusForbidden {
+		t.Fatalf("existing user = %d, unknown user = %d; want 403 for both, or the status "+
+			"code tells a member which ids exist", real.Code, fake.Code)
+	}
+	// The body has to match too: a differing message is the same oracle in prose.
+	if real.Body.String() != fake.Body.String() {
+		t.Errorf("bodies differ between an existing and an unknown user:\n  existing: %s\n  unknown:  %s",
+			real.Body.String(), fake.Body.String())
 	}
 }
 

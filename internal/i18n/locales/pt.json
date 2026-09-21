@@ -157,6 +157,11 @@
   "assistant_status_slots": "A verificar a disponibilidade…",
   "assistant_status_book": "A marcar…",
   "assistant_status_working": "A processar…",
+  "time_period": "Período do dia",
+  "time_morning": "Manhã",
+  "time_afternoon": "Tarde",
+  "time_evening": "Noite",
+  "phone_call_number": "Telefone (opcional, para uma chamada)",
 
   "index_title": "Marcar uma reunião",
   "index_intro": "Escolha um tipo de reunião para ver os horários disponíveis.",

@@ -291,7 +291,6 @@ func (c *Client) httpClient(ctx context.Context, userID string, checkConflicts, 
 
 // freeBusyConnections returns an authorized client for EVERY Microsoft connection the user
 // has with check_conflicts = 1 (so several connected Microsoft accounts are all checked).
-// Bad-credential rows are logged and skipped (fail-open).
 // msFBConn is one conflict-check account's authorized client plus which calendars to read.
 // useDefault means query /me/calendarView (the account's default calendar) — the pre-picker
 // behaviour, used when the user hasn't selected sub-calendars; otherwise calIDs holds the
@@ -337,8 +336,7 @@ func (c *Client) freeBusyConnections(ctx context.Context, userID string) ([]msFB
 		}
 		hc, err := c.buildClient(ctx, userID, d.accessEnc, d.refreshEnc, d.calID, d.expiryStr, d.accountEmail)
 		if err != nil {
-			c.logger.Warn("microsoft: skipping connection with bad credentials", "user_id", userID, "error", err)
-			continue
+			return nil, err
 		}
 		// Unconfigured accounts fall back to the stored "primary" placeholder id, which is not a
 		// real Graph calendar id — read the default calendar view for those.
