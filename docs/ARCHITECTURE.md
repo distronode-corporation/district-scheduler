@@ -630,7 +630,7 @@ committed booking) — which is why the reconciler (§11) exists.
 
 The connected-provider lookup prefers the destination connection. A conflict-only connection must not select the provider used when deciding how to generate a meeting link.
 Availability checks return an error if any selected conflict calendar cannot be checked. Partial provider responses and unreadable busy periods are not treated as free time. An unavailable calendar can therefore temporarily prevent booking; reconnect it or deselect it from conflict checks to restore availability.
-Bookings also check pending local bookings owned by other accounts that use the same selected conflict calendar. This check runs inside the booking transaction, before asynchronous calendar creation can finish. Calendar identity currently includes the provider, account email, and calendar ID. ⚠️ On PostgreSQL the transaction holds the advisory lock of the booking's own host only, so two hosts that share a calendar are not serialised against each other by it.
+Bookings also check pending local bookings owned by other accounts that use the same selected conflict calendar. This check runs inside the booking transaction, before asynchronous calendar creation can finish. Calendar identity currently includes the provider, account email, and calendar ID. On PostgreSQL `lockHosts` therefore locks, besides each host, every calendar those hosts check or book into (provider, account email, calendar id), all keys taken in one sorted order, so two hosts sharing a calendar serialise on it.
 
 Calnode talks to calendars through a **provider abstraction**, not a single vendor:
 

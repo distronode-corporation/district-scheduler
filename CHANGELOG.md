@@ -78,9 +78,10 @@ what this fork had to do to take it:
   booking until it is reconnected or deselected. This is upstream's decision
   (`0877f7a6`, `3bb9e178`, `f909ee2c`), taken as is.
 - **Shared-calendar conflicts** (`0391583c`): a local booking of another host whose
-  destination calendar this host checks now blocks the slot. ⚠️ On PostgreSQL the
-  overlap check still holds the advisory lock of the booking's own host only, so two
-  hosts sharing a calendar are not serialised against each other.
+  destination calendar this host checks now blocks the slot. On PostgreSQL the booking
+  transaction now also takes an advisory lock per calendar the hosts check or book into
+  (`lockHosts`), so two hosts sharing a calendar are serialised against each other; with
+  host locks alone upstream's own race test let both bookings through.
 - **Self-service password reset** (`659626dc`): `POST /v1/auth/password/forgot` and
   `/reset`, registered HostWorkspace-scoped like the magic link, with
   `password_reset_tokens` as a tenant table (migration 00066, RLS policy, export order).

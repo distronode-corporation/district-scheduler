@@ -207,7 +207,7 @@ func TestBookingCalendarCancelledOwnEvent(t *testing.T) {
 			h, database, key, owner := setupWorkspaceWithDB(t)
 			slug, etID := seedEventTypeHTTP(t, h, key)
 			calendarCheckExec(t, database, `INSERT INTO bookings (id,event_type_id,host_id,start_at,end_at,status) VALUES ('cancelled',?,?,?,?,'cancelled')`, etID, owner, start.Add(-time.Hour).Format(time.RFC3339), start.Add(time.Hour).Format(time.RFC3339))
-			calendarCheckExec(t, database, `INSERT INTO booking_hosts (booking_id,user_id,external_event_id) VALUES ('cancelled',?,'old-event')`, owner)
+			calendarCheckExec(t, database, `INSERT INTO booking_hosts (id,booking_id,user_id,external_event_id) VALUES ('bh-cancelled','cancelled',?,'old-event')`, owner)
 			busyEnd := start.Add(time.Hour)
 			bookingStart := start
 			if otherEvent {
