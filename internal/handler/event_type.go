@@ -300,6 +300,11 @@ func (h *Handler) CreateEventType(w http.ResponseWriter, r *http.Request) {
 	if req.ShowTakenSlots != nil && *req.ShowTakenSlots {
 		showTaken = 1
 	}
+	// Same shape as showTaken, for the same reason: SMALLINT on PostgreSQL.
+	allowPhone := 0
+	if req.AllowPhoneCall != nil && *req.AllowPhoneCall {
+		allowPhone = 1
+	}
 
 	id := uid.New()
 	tx, err := h.db.BeginTx(r.Context(), nil)
@@ -319,7 +324,7 @@ func (h *Handler) CreateEventType(w http.ResponseWriter, r *http.Request) {
 		   msg_confirmation, msg_cancellation, msg_reschedule, msg_reminder)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, user.ID, req.Slug, req.Name, req.Description,
-		req.DurationMinutes, slotInterval, locType, req.LocationValue, req.AllowPhoneCall != nil && *req.AllowPhoneCall,
+		req.DurationMinutes, slotInterval, locType, req.LocationValue, allowPhone,
 		routingMode, bufBefore, bufAfter, minNotice, maxFuture, maxActive, showTaken,
 		defaultMsgConfirmation, defaultMsgCancellation, defaultMsgReschedule, defaultMsgReminder)
 	if err != nil {
@@ -598,7 +603,13 @@ func (h *Handler) PatchEventType(w http.ResponseWriter, r *http.Request) {
 		set("is_public", v)
 	}
 	if req.AllowPhoneCall != nil {
-		set("allow_phone_call", *req.AllowPhoneCall)
+		// An int, never a Go bool: the column is SMALLINT on PostgreSQL, and pgx refuses to
+		// encode a bool into int2 (SQLite accepted either).
+		v := 0
+		if *req.AllowPhoneCall {
+			v = 1
+		}
+		set("allow_phone_call", v)
 	}
 	if req.ShowTakenSlots != nil {
 		v := 0
