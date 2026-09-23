@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -524,4 +525,76 @@ func tenantRowCounts(t *testing.T, platform *db.DB, wsID string) map[string]int 
 		out[table] = n
 	}
 	return out
+}
+
+// ⛔ Image bytes survive export and import exactly. The round-trip test above cannot show
+// this on its own: if the bytes were exported as a Go string, encoding/json would replace
+// every invalid UTF-8 sequence with U+FFFD, the import would store the damaged bytes, and
+// a second export of them would match the first byte for byte. So the bytes are compared
+// against the ones that went in, and the document is checked to carry them as base64.
+func TestPlatformData_assetBytesSurviveTheRoundTrip(t *testing.T) {
+	routes, _, platform := newPlatformDataAPI(t)
+	provisionForData(t, routes, "acme", "book.acme.example")
+
+	var ownerID string
+	if err := platform.QueryRow(
+		`SELECT id FROM users WHERE workspace_id = 'acme' AND is_owner = 1`).Scan(&ownerID); err != nil {
+		t.Fatalf("read owner: %v", err)
+	}
+	// A PNG signature and bytes that are not UTF-8 in any arrangement.
+	logo := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00, 0xc3, 0x28, 0x80}
+	avatar := []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0xa0, 0xa1}
+	for _, a := range []struct {
+		kind, owner, ctype string
+		data               []byte
+	}{{"logo", "", "image/png", logo}, {"avatar", ownerID, "image/jpeg", avatar}} {
+		if _, err := platform.Exec(
+			`INSERT INTO workspace_assets (workspace_id, kind, owner_id, content_type, data, sha256)
+			 VALUES ('acme', ?, ?, ?, ?, ?)`,
+			a.kind, a.owner, a.ctype, a.data, strings.Repeat("0", 64)); err != nil {
+			t.Fatalf("seed %s: %v", a.kind, err)
+		}
+	}
+
+	exp := doPlatformSub(t, routes["export"], http.MethodPost,
+		"/v1/platform/workspaces/acme/export", "acme", nil, platformToken)
+	if exp.Code != http.StatusOK {
+		t.Fatalf("export: %d — %s", exp.Code, exp.Body.String())
+	}
+	document := exp.Body.Bytes()
+	if !bytes.Contains(document, []byte(`"data":"`+base64.StdEncoding.EncodeToString(logo)+`"`)) {
+		t.Errorf("the export does not carry the logo as base64")
+	}
+
+	if rec := doPlatform(t, routes["delete"], http.MethodDelete,
+		"/v1/platform/workspaces/acme", nil, platformToken); rec.Code != http.StatusOK {
+		t.Fatalf("delete: %d — %s", rec.Code, rec.Body.String())
+	}
+	var left int
+	if err := platform.QueryRow(`SELECT COUNT(*) FROM workspace_assets WHERE workspace_id = 'acme'`).Scan(&left); err != nil {
+		t.Fatalf("count after delete: %v", err)
+	}
+	if left != 0 {
+		t.Fatalf("deleting the workspace left %d asset rows; the foreign key should cascade", left)
+	}
+	if _, err := platform.Exec(`
+		INSERT INTO workspaces (id, slug, public_host, region, status)
+		VALUES ('acme', 'acme', 'book.acme.example', 'us', 'active')`); err != nil {
+		t.Fatalf("re-create workspace: %v", err)
+	}
+	if imp := doPlatformSub(t, routes["import"], http.MethodPost,
+		"/v1/platform/workspaces/acme/import", "acme", document, platformToken); imp.Code != http.StatusOK {
+		t.Fatalf("import: %d — %s", imp.Code, imp.Body.String())
+	}
+
+	for kind, want := range map[string][]byte{"logo": logo, "avatar": avatar} {
+		var got []byte
+		if err := platform.QueryRow(
+			`SELECT data FROM workspace_assets WHERE workspace_id = 'acme' AND kind = ?`, kind).Scan(&got); err != nil {
+			t.Fatalf("read imported %s: %v", kind, err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("imported %s = %x; want %x", kind, got, want)
+		}
+	}
 }

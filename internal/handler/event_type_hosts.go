@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/calnode/calnode/internal/db"
 	"github.com/calnode/calnode/internal/uid"
 )
 
@@ -69,7 +70,7 @@ func (h *Handler) ListEventTypeHosts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.db.QueryContext(r.Context(), `
-		SELECT eth.user_id, u.name, u.email, COALESCE(u.avatar_url,''), eth.role, eth.priority, u.archived_at
+		SELECT eth.user_id, u.name, u.email, `+db.AvatarURLSQL+`, eth.role, eth.priority, u.archived_at
 		FROM event_type_hosts eth
 		JOIN users u ON u.id = eth.user_id
 		WHERE eth.event_type_id = ?

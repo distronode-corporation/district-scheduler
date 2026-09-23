@@ -99,8 +99,10 @@ docker run -d -p 3000:3000 \
   ghcr.io/distronode-corporation/district-scheduler:sha-abc1234
 ```
 
-There is no volume: this image writes nothing it cannot lose, and `DATA_DIR`
-(uploads: avatars, branding) should point at a mounted path if you accept uploads.
+There is no volume: this image writes no files. Uploaded images (the logo, the banner
+and member avatars) are rows in the database like everything else (migration 00069),
+so they survive a restart and travel with a workspace's export. `DATA_DIR` is no longer
+read.
 
 Upstream's image, single-tenant on SQLite:
 

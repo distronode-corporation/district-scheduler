@@ -297,11 +297,6 @@ func (h *Handler) sttBaseURL() string {
 	return stt.DefaultBaseURL
 }
 
-// SetDataDir sets the directory used for file uploads (avatars, etc.).
-func (h *Handler) SetDataDir(dir string) {
-	h.dataDir = dir
-}
-
 // SetDemoMode marks this instance as the public, self-resetting demo, which
 // disables calendar/Zoom connect and is surfaced to the frontend via
 // GET /v1/auth/status. Never set this on a real deployment.

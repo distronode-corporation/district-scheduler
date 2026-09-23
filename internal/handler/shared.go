@@ -78,7 +78,6 @@ type shared struct {
 
 	baseURL       string
 	publicBaseURL string
-	dataDir       string
 
 	// ssoSecret, metricsToken and sttBaseURLCfg arrive with feat/platform-hooks. They
 	// live on shared, not on the per-request Handler: each is one process-wide

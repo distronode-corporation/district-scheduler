@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"net/http"
 	"time"
+
+	"github.com/calnode/calnode/internal/db"
 )
 
 // ListUsers handles GET /v1/users — admin only. Returns all users.
@@ -22,7 +24,7 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.db.QueryContext(r.Context(), `
 		SELECT u.id, u.email, u.name, u.iana_timezone, u.is_admin, u.is_owner, u.email_login,
-		       COALESCE(u.provider,''), COALESCE(u.avatar_url,''), u.created_at,
+		       COALESCE(u.provider,''), `+db.AvatarURLSQL+`, u.created_at,
 		       u.archived_at, COALESCE(u.archived_by,''), COALESCE(ab.name,'')
 		FROM users u LEFT JOIN users ab ON ab.id = u.archived_by
 		`+where+` ORDER BY u.created_at ASC`)
@@ -169,7 +171,17 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.db.ExecContext(r.Context(), `DELETE FROM users WHERE id = ?`, targetID)
+	// The member's avatar goes with them. workspace_assets.owner_id has no foreign key to
+	// cascade (it is '' for the workspace's own images), so the row is removed here, in the
+	// same transaction; ServeAvatar also refuses a row whose user is gone.
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "delete user: begin tx", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck // a no-op after Commit
+	res, err := tx.ExecContext(r.Context(), `DELETE FROM users WHERE id = ?`, targetID)
 	if err != nil {
 		h.logger.ErrorContext(r.Context(), "delete user: exec", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal error")
@@ -177,6 +189,16 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		h.writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	if err := deleteAsset(r.Context(), tx, assetAvatar, targetID); err != nil {
+		h.logger.ErrorContext(r.Context(), "delete user: avatar", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		h.logger.ErrorContext(r.Context(), "delete user: commit", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	h.writeJSON(w, http.StatusOK, map[string]any{"ok": true})

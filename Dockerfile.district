@@ -12,7 +12,8 @@
 # assume of this image, and this file guarantees:
 #   - listens on 3000 (PORT is fixed here; the Service targets it by name)
 #   - runs as uid 10001, non-root, matching the pod securityContext
-#   - needs no writable filesystem beyond what the binary creates in DATA_DIR
+#   - writes no files of its own (uploaded images are database rows since migration
+#     00069); /tmp is still needed for multipart parsing and the Go runtime
 #   - reads every setting from the environment (the district-scheduler-env Secret)
 #
 # Everything else — the frontend build, the Go build, VERSION/COMMIT stamping —
@@ -62,7 +63,8 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
     -o district-scheduler ./cmd/calnode
 
 # An empty directory to become /data in the runtime image: distroless has no shell,
-# so the only way to ship a directory with an owner is to COPY one in.
+# so the only way to ship a directory with an owner is to COPY one in. Kept only as the
+# mount point the fleet manifests still name (see below).
 RUN mkdir -p /build/data-empty
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
@@ -71,10 +73,10 @@ RUN mkdir -p /build/data-empty
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
 COPY --from=builder /build/district-scheduler /district-scheduler
-# Uploads (avatars, branding) go here; owned by the uid below so the binary can
-# write it, and a volume may be mounted over it. DATA_DIR is what the binary reads
-# (config.go); without it the default is the RELATIVE "data", which under / and
-# uid 10001 is not creatable, and every avatar upload would fail with EACCES.
+# ⚠️ Nothing is written here any more. Uploads (avatars, branding) went here, under
+# DATA_DIR, until migration 00069 moved them into the database; the binary no longer
+# reads DATA_DIR. The directory stays because the fleet manifests still mount an
+# emptyDir at /data, and removing it belongs with removing that mount, not before it.
 COPY --from=builder --chown=10001:10001 /build/data-empty /data
 
 # 10001 is what the fleet's pod securityContext pins (runAsUser/runAsNonRoot); the
@@ -82,8 +84,7 @@ COPY --from=builder --chown=10001:10001 /build/data-empty /data
 USER 10001:10001
 
 EXPOSE 3000
-ENV PORT=3000 \
-    DATA_DIR=/data
+ENV PORT=3000
 
 # No default DATABASE_URL: in multi-tenant mode both DSNs are required and there is
 # no sensible default for either, so a missing one fails at boot with the config

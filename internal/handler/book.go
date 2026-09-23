@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/calnode/calnode/internal/db"
 	"github.com/calnode/calnode/internal/i18n"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
@@ -135,7 +136,7 @@ func (h *Handler) displayHosts(ctx context.Context, etID, mode string) []hostDis
 		role = "rotation"
 	}
 	rows, err := h.db.QueryContext(ctx, `
-		SELECT u.name, COALESCE(u.avatar_url, '')
+		SELECT u.name, `+db.AvatarURLSQL+`
 		FROM event_type_hosts eth JOIN users u ON u.id = eth.user_id
 		WHERE eth.event_type_id = ? AND eth.role = ? AND u.archived_at IS NULL
 		ORDER BY eth.priority ASC, u.name ASC`, etID, role)
@@ -328,7 +329,7 @@ func (h *Handler) PublicEventType(w http.ResponseWriter, r *http.Request) {
 	err := h.db.QueryRowContext(r.Context(), `
 		SELECT et.id, et.name, COALESCE(et.description, ''),
 		       et.duration_minutes, et.location_type, COALESCE(et.location_value, ''),
-		       et.max_future_days, et.min_notice_minutes, et.routing_mode, u.name, COALESCE(u.avatar_url, ''),
+		       et.max_future_days, et.min_notice_minutes, et.routing_mode, u.name, `+db.AvatarURLSQL+`,
 		       et.price_cents, et.currency, et.msg_greeting, et.allow_phone_call, u.booking_accent
 		FROM event_types et
 		JOIN users u ON u.id = et.user_id
@@ -443,7 +444,7 @@ func (h *Handler) BookPage(w http.ResponseWriter, r *http.Request) {
 	err := h.db.QueryRowContext(r.Context(), `
 		SELECT et.id, et.name, COALESCE(et.description, ''),
 		       et.duration_minutes, et.location_type, COALESCE(et.location_value, ''),
-		       et.max_future_days, et.min_notice_minutes, et.routing_mode, u.name, COALESCE(u.avatar_url, ''),
+		       et.max_future_days, et.min_notice_minutes, et.routing_mode, u.name, `+db.AvatarURLSQL+`,
 		       et.price_cents, et.currency, et.msg_greeting, et.allow_phone_call, u.booking_accent
 		FROM event_types et
 		JOIN users u ON u.id = et.user_id

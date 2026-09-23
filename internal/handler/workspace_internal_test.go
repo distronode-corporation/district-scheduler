@@ -325,8 +325,8 @@ func TestForWorkspace_isACheapValue(t *testing.T) {
 	}
 	// A setting applied to the base handler after the copy is still visible,
 	// because *shared is shared.
-	h.SetDataDir("/tmp/somewhere")
-	if scoped.dataDir != "/tmp/somewhere" {
+	h.SetBaseURL("https://later.example.test")
+	if scoped.baseURL != "https://later.example.test" {
 		t.Error("the copy does not see later changes to process state")
 	}
 }

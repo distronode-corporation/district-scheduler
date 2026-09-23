@@ -429,6 +429,7 @@ func TestPostgres_compositeUniqueness(t *testing.T) {
 		"idempotency_keys_pkey":             {"workspace_id", "idempotency_key"},
 		"meeting_consents_pkey":             {"workspace_id", "room", "participant_identity"},
 		"server_settings_pkey":              {"workspace_id", "id"},
+		"workspace_assets_pkey":             {"workspace_id", "kind", "owner_id"},
 		"ux_jobs_type_payload":              {"workspace_id", "type", "payload"},
 		"idx_notes_booking":                 {"workspace_id", "booking_id"},
 		"idx_bookings_no_double":            {"workspace_id", "host_id", "start_at"},
