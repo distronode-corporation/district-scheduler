@@ -310,6 +310,33 @@ what this fork had to do to take it:
   is the guard.
 
 ### Fixed
+- **Uploaded images are stored in the database, per workspace, and no longer vanish on a
+  restart or leak between tenants.** The logo, the banner and member avatars were files
+  under `DATA_DIR` (`branding/logo.png`, `branding/banner.png`, `avatars/<id>.jpg`). The
+  branding directory was not workspace-scoped, so on a multi-tenant instance one tenant's
+  upload overwrote another's file, the other tenant's booking pages and emails served it,
+  and one tenant's "Remove logo" deleted the other's. And on the fleet `/data` is an
+  emptyDir, so every restart or rollout deleted the files while `logo_url` and
+  `avatar_url` still pointed at them (`/branding/logo` answered 404 in production).
+
+  Migration 00069 adds `workspace_assets`, a tenant table under the same row-level
+  security as every other: one row per (workspace, kind, owner) holding the re-encoded
+  bytes, content type and SHA-256, with the 5 MiB and JPEG/PNG/GIF/WebP limits restated
+  as CHECKs. Upload and remove write the row and the URL in one transaction; the URL is
+  still the relative serve path, now with a `?v=` taken from the content hash. The serve
+  routes read the row of the workspace whose public host was asked for and answer with
+  its `Content-Type`, an ETag (304 on `If-None-Match`), the previous `Cache-Control` and
+  `nosniff`, or 404. Removing a member removes their avatar. The table travels in a
+  workspace export, its bytes as base64.
+
+  Nothing is imported from disk. A stored URL that names one of these paths with no row
+  behind it now reads as unset everywhere it is shown, so booking emails and pages fall
+  back to the unbranded layout instead of a broken image; the columns themselves are left
+  untouched. ⚠️ Every image uploaded before this has to be uploaded again, including on a
+  single-tenant instance whose files were on a persistent volume. `DATA_DIR` is no longer
+  read and `Dockerfile.district` no longer sets it. Fork-authored; upstream still writes
+  files.
+
 - **Constraint violations are recognised by SQLite's error code rather than by its
   English message.** Thirteen call sites asked `strings.Contains(err.Error(), "UNIQUE
   constraint failed")`, and SQLite reports a PRIMARY KEY collision

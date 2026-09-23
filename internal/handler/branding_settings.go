@@ -4,24 +4,21 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"image/png"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/calnode/calnode/internal/db"
 	"github.com/calnode/calnode/internal/dbtime"
 	"github.com/calnode/calnode/internal/i18n"
 	"github.com/calnode/calnode/internal/mailer"
 	"github.com/disintegration/imaging"
 )
 
-// logoPath is the served path for the instance logo. The stored value carries a
-// cache-busting ?v=<unix> so re-uploads aren't masked by email/browser caching.
+// logoServePath is the served path for the workspace logo. The stored value carries a
+// cache-busting ?v=<content hash> so re-uploads aren't masked by email/browser caching.
 const logoServePath = "/branding/logo"
 
 // bannerServePath is the served path for the instance banner image.
@@ -46,13 +43,17 @@ type brandingSettings struct {
 // loadBranding reads the brand identity from the singleton settings row.
 func (h *Handler) loadBranding(ctx context.Context) brandingSettings {
 	var b brandingSettings
-	_ = h.db.QueryRowContext(ctx, `
-		SELECT COALESCE(business_name,''), COALESCE(logo_url,''),
+	// The two image URLs are read through db.LogoURLSQL and db.BannerURLSQL, so one that
+	// names an image this workspace does not have reads as unset rather than as a broken
+	// <img>.
+	const query = `
+		SELECT COALESCE(business_name,''), ` + db.LogoURLSQL + `,
 		       COALESCE(logo_height,28), COALESCE(logo_opacity,100),
-		       COALESCE(banner_url,''), COALESCE(banner_opacity,100),
+		       ` + db.BannerURLSQL + `, COALESCE(banner_opacity,100),
 		       COALESCE(privacy_url,''), COALESCE(terms_url,''),
 		       COALESCE(fallback_locale,'en')
-		FROM server_settings WHERE id = 1`).Scan(&b.BusinessName, &b.LogoURL, &b.LogoHeight, &b.LogoOpacity,
+		FROM server_settings WHERE id = 1`
+	_ = h.db.QueryRowContext(ctx, query).Scan(&b.BusinessName, &b.LogoURL, &b.LogoHeight, &b.LogoOpacity,
 		&b.BannerURL, &b.BannerOpacity, &b.PrivacyURL, &b.TermsURL, &b.FallbackLocale)
 	if b.LogoHeight <= 0 {
 		b.LogoHeight = 28
@@ -229,12 +230,10 @@ func (h *Handler) PatchBranding(w http.ResponseWriter, r *http.Request) {
 	h.GetBranding(w, r)
 }
 
-func (h *Handler) brandingDir() string { return filepath.Join(h.dataDir, "branding") }
-
 // UploadBrandingLogo handles POST /v1/settings/branding/logo (admin).
 // Accepts multipart/form-data with a "logo" file field (JPEG/PNG/GIF/WebP, ≤5 MB).
-// Resized to fit 600×200 preserving aspect ratio, re-encoded as PNG (keeps
-// transparency), and stored on the data volume.
+// Resized to fit 600×160 preserving aspect ratio, re-encoded as PNG (keeps
+// transparency), and stored in workspace_assets for the caller's workspace.
 func (h *Handler) UploadBrandingLogo(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireAdmin(w, r); !ok {
 		return
@@ -275,51 +274,8 @@ func (h *Handler) UploadBrandingLogo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dir := h.brandingDir()
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		h.logger.ErrorContext(r.Context(), "logo: mkdir", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	dest := filepath.Join(dir, "logo.png")
-	tmp, err := os.CreateTemp(dir, "upload-*.png")
-	if err != nil {
-		h.logger.ErrorContext(r.Context(), "logo: create temp", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	tmpPath := tmp.Name()
-	committed := false
-	defer func() {
-		tmp.Close() // #nosec G104 -- file already written/renamed by this point; nothing actionable
-		if !committed {
-			if rerr := os.Remove(tmpPath); rerr != nil && !os.IsNotExist(rerr) {
-				h.logger.Warn("logo: cleanup temp file", "error", rerr, "path", tmpPath)
-			}
-		}
-	}()
-	if _, err := tmp.Write(out.Bytes()); err != nil {
-		h.logger.ErrorContext(r.Context(), "logo: write temp", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	if err := tmp.Close(); err != nil {
-		h.logger.ErrorContext(r.Context(), "logo: close temp", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	if err := os.Rename(tmpPath, dest); err != nil {
-		h.logger.ErrorContext(r.Context(), "logo: rename", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	committed = true
-
-	logoURL := fmt.Sprintf("%s?v=%d", logoServePath, time.Now().Unix())
-	if _, err := h.db.ExecContext(r.Context(),
-		`UPDATE server_settings SET logo_url = ?, updated_at = ? WHERE id = 1`, logoURL, dbtime.Now()); err != nil {
-		h.logger.ErrorContext(r.Context(), "logo: update db", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal error")
+	logoURL, ok := h.storeBrandingImage(w, r, assetLogo, "logo_url", logoServePath, out.Bytes())
+	if !ok {
 		return
 	}
 	h.writeJSON(w, http.StatusOK, map[string]string{"logo_url": logoURL})
@@ -330,42 +286,24 @@ func (h *Handler) DeleteBrandingLogo(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireAdmin(w, r); !ok {
 		return
 	}
-	_ = os.Remove(filepath.Join(h.brandingDir(), "logo.png"))
-	if _, err := h.db.ExecContext(r.Context(),
-		`UPDATE server_settings SET logo_url = '', updated_at = ? WHERE id = 1`, dbtime.Now()); err != nil {
-		h.logger.ErrorContext(r.Context(), "logo: delete db", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal error")
+	if !h.removeBrandingImage(w, r, assetLogo, "logo_url") {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // ServeBrandingLogo handles GET /branding/logo. Public — the logo is embedded in
-// public pages and emails.
+// public pages and emails. Serves the logo of the workspace whose public host was
+// asked for.
 func (h *Handler) ServeBrandingLogo(w http.ResponseWriter, r *http.Request) {
-	path := filepath.Join(h.brandingDir(), "logo.png")
-	f, err := os.Open(path) // #nosec G304 -- "logo.png" is a literal; h.brandingDir() derives from the server's own dataDir config, never user input
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	defer f.Close()
-	fi, err := f.Stat()
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "public, max-age=86400")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	http.ServeContent(w, r, path, fi.ModTime(), f)
+	h.serveAsset(w, r, assetLogo, "", "public, max-age=86400")
 }
 
 // UploadBrandingBanner handles POST /v1/settings/branding/banner (admin).
 // Accepts multipart/form-data with a "banner" file field (JPEG/PNG/GIF/WebP, ≤5 MB).
-// Resized to fit 1600×800 preserving aspect ratio, re-encoded as PNG, and stored
-// on the data volume. Unlike the logo, the banner is always displayed at 100%
-// width, so it's resized larger to stay sharp at full-container width.
+// Resized to fit 1600×800 preserving aspect ratio, re-encoded as PNG, and stored in
+// workspace_assets for the caller's workspace. Unlike the logo, the banner is always
+// displayed at 100% width, so it's resized larger to stay sharp at full-container width.
 func (h *Handler) UploadBrandingBanner(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireAdmin(w, r); !ok {
 		return
@@ -402,51 +340,8 @@ func (h *Handler) UploadBrandingBanner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dir := h.brandingDir()
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		h.logger.ErrorContext(r.Context(), "banner: mkdir", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	dest := filepath.Join(dir, "banner.png")
-	tmp, err := os.CreateTemp(dir, "upload-*.png")
-	if err != nil {
-		h.logger.ErrorContext(r.Context(), "banner: create temp", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	tmpPath := tmp.Name()
-	committed := false
-	defer func() {
-		tmp.Close() // #nosec G104 -- file already written/renamed by this point; nothing actionable
-		if !committed {
-			if rerr := os.Remove(tmpPath); rerr != nil && !os.IsNotExist(rerr) {
-				h.logger.Warn("banner: cleanup temp file", "error", rerr, "path", tmpPath)
-			}
-		}
-	}()
-	if _, err := tmp.Write(out.Bytes()); err != nil {
-		h.logger.ErrorContext(r.Context(), "banner: write temp", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	if err := tmp.Close(); err != nil {
-		h.logger.ErrorContext(r.Context(), "banner: close temp", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	if err := os.Rename(tmpPath, dest); err != nil {
-		h.logger.ErrorContext(r.Context(), "banner: rename", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	committed = true
-
-	bannerURL := fmt.Sprintf("%s?v=%d", bannerServePath, time.Now().Unix())
-	if _, err := h.db.ExecContext(r.Context(),
-		`UPDATE server_settings SET banner_url = ?, updated_at = ? WHERE id = 1`, bannerURL, dbtime.Now()); err != nil {
-		h.logger.ErrorContext(r.Context(), "banner: update db", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal error")
+	bannerURL, ok := h.storeBrandingImage(w, r, assetBanner, "banner_url", bannerServePath, out.Bytes())
+	if !ok {
 		return
 	}
 	h.writeJSON(w, http.StatusOK, map[string]string{"banner_url": bannerURL})
@@ -457,33 +352,92 @@ func (h *Handler) DeleteBrandingBanner(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireAdmin(w, r); !ok {
 		return
 	}
-	_ = os.Remove(filepath.Join(h.brandingDir(), "banner.png"))
-	if _, err := h.db.ExecContext(r.Context(),
-		`UPDATE server_settings SET banner_url = '', updated_at = ? WHERE id = 1`, dbtime.Now()); err != nil {
-		h.logger.ErrorContext(r.Context(), "banner: delete db", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal error")
+	if !h.removeBrandingImage(w, r, assetBanner, "banner_url") {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // ServeBrandingBanner handles GET /branding/banner. Public — the banner is
-// embedded in public pages and emails.
+// embedded in public pages and emails. Serves the banner of the workspace whose public
+// host was asked for.
 func (h *Handler) ServeBrandingBanner(w http.ResponseWriter, r *http.Request) {
-	path := filepath.Join(h.brandingDir(), "banner.png")
-	f, err := os.Open(path) // #nosec G304 -- "banner.png" is a literal; h.brandingDir() derives from the server's own dataDir config, never user input
+	h.serveAsset(w, r, assetBanner, "", "public, max-age=86400")
+}
+
+// storeBrandingImage writes an encoded PNG as the workspace's logo or banner and points
+// the settings column at it, in one transaction, so neither can exist without the other.
+// It answers the request itself on failure and reports whether it succeeded.
+//
+// column is "logo_url" or "banner_url", a literal from the two callers above.
+func (h *Handler) storeBrandingImage(w http.ResponseWriter, r *http.Request, kind, column, servePath string, png []byte) (string, bool) {
+	tx, err := h.db.BeginTx(r.Context(), nil)
 	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
+		h.logger.ErrorContext(r.Context(), kind+": begin tx", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return "", false
 	}
-	defer f.Close()
-	fi, err := f.Stat()
+	defer tx.Rollback() //nolint:errcheck // a no-op after Commit
+
+	etag, err := putAsset(r.Context(), tx, kind, "", "image/png", png)
 	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
+		h.logger.ErrorContext(r.Context(), kind+": store", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return "", false
 	}
-	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "public, max-age=86400")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	http.ServeContent(w, r, path, fi.ModTime(), f)
+	url := assetURL(servePath, etag)
+	if _, err := tx.ExecContext(r.Context(),
+		`UPDATE server_settings SET `+brandingColumn(column)+` = ?, updated_at = ? WHERE id = 1`, // #nosec G202 -- brandingColumn admits only the two literal column names
+		url, dbtime.Now()); err != nil {
+		h.logger.ErrorContext(r.Context(), kind+": update db", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return "", false
+	}
+	if err := tx.Commit(); err != nil {
+		h.logger.ErrorContext(r.Context(), kind+": commit", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return "", false
+	}
+	return url, true
+}
+
+// removeBrandingImage deletes the workspace's logo or banner and clears the column that
+// names it, in one transaction. It answers the request itself on failure.
+func (h *Handler) removeBrandingImage(w http.ResponseWriter, r *http.Request, kind, column string) bool {
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), kind+": delete begin tx", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return false
+	}
+	defer tx.Rollback() //nolint:errcheck // a no-op after Commit
+
+	if err := deleteAsset(r.Context(), tx, kind, ""); err != nil {
+		h.logger.ErrorContext(r.Context(), kind+": delete asset", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return false
+	}
+	if _, err := tx.ExecContext(r.Context(),
+		`UPDATE server_settings SET `+brandingColumn(column)+` = '', updated_at = ? WHERE id = 1`, // #nosec G202 -- brandingColumn admits only the two literal column names
+		dbtime.Now()); err != nil {
+		h.logger.ErrorContext(r.Context(), kind+": delete db", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return false
+	}
+	if err := tx.Commit(); err != nil {
+		h.logger.ErrorContext(r.Context(), kind+": delete commit", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return false
+	}
+	return true
+}
+
+// brandingColumn is the allowlist for the one identifier storeBrandingImage and
+// removeBrandingImage interpolate. Anything else is a programming error.
+func brandingColumn(column string) string {
+	switch column {
+	case "logo_url", "banner_url":
+		return column
+	}
+	panic("handler: not a branding image column: " + column)
 }

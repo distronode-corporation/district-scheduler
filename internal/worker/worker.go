@@ -401,9 +401,10 @@ func (w *Worker) sendReminder(ctx context.Context, deps TenantDeps, payload stri
 	}
 	d.Locale = i18n.Get(locale)
 
-	// Brand the reminder email with the instance wordmark/logo.
+	// Brand the reminder email with the instance wordmark/logo. db.LogoURLSQL reads a logo
+	// URL with no stored image behind it as unset, as the handler's loadBranding does.
 	_ = deps.DB.QueryRowContext(ctx, `
-		SELECT COALESCE(business_name,''), COALESCE(logo_url,'')
+		SELECT COALESCE(business_name,''), `+db.LogoURLSQL+`
 		FROM server_settings WHERE id = 1`).Scan(&d.BrandName, &d.LogoURL)
 
 	if err := mailer.SendReminder(ctx, deps.Mailer, d); err != nil {

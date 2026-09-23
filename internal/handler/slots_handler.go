@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/calnode/calnode/internal/db"
 	"github.com/calnode/calnode/internal/slots"
 )
 
@@ -325,7 +326,7 @@ func (h *Handler) hostDisplayMap(ctx context.Context, ids []string) map[string]m
 		args[i] = id
 	}
 	rows, err := h.db.QueryContext(ctx,
-		`SELECT id, name, COALESCE(avatar_url, '') FROM users WHERE id IN (`+strings.Join(ph, ",")+`)`, args...) // #nosec G202 -- ph is a fixed slice of literal "?" placeholders (one per id above); every value is bound via args..., never concatenated into the SQL text
+		`SELECT u.id, u.name, `+db.AvatarURLSQL+` FROM users u WHERE u.id IN (`+strings.Join(ph, ",")+`)`, args...) // #nosec G202 -- ph is a fixed slice of literal "?" placeholders (one per id above); every value is bound via args..., never concatenated into the SQL text
 	if err != nil {
 		h.logger.ErrorContext(ctx, "slots: host display map", "error", err)
 		return out

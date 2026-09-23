@@ -152,7 +152,7 @@ func (h *Handler) GetTeam(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.db.QueryContext(r.Context(), `
-		SELECT u.id, u.name, u.email, COALESCE(u.avatar_url,''), tm.routing_priority, u.archived_at
+		SELECT u.id, u.name, u.email, `+db.AvatarURLSQL+`, tm.routing_priority, u.archived_at
 		FROM team_members tm JOIN users u ON u.id = tm.user_id
 		WHERE tm.team_id = ?
 		ORDER BY tm.routing_priority ASC, u.name ASC`, id)

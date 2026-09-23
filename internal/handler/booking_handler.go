@@ -1860,7 +1860,7 @@ func (h *Handler) assignedHosts(ctx context.Context, bookingID string) ([]assign
 // confirmation response so they show who's actually attending, not the owner.
 func (h *Handler) displayHostsForBooking(ctx context.Context, bookingID string) []hostDisplay {
 	rows, err := h.db.QueryContext(ctx, `
-		SELECT bh.user_id, u.name, COALESCE(u.avatar_url, '')
+		SELECT bh.user_id, u.name, `+db.AvatarURLSQL+`
 		FROM booking_hosts bh JOIN users u ON u.id = bh.user_id
 		WHERE bh.booking_id = ?
 		ORDER BY bh.is_primary DESC, u.name ASC`, bookingID)

@@ -890,7 +890,7 @@ as the desired state:
 - **Per-event-type customisation:** custom note bodies (`msg_*`) and custom subject
   lines (`subj_*`, migration 00026) for the four attendee emails; a blank subject
   falls back to the built-in default (`BookingData.SubjectOverride` / `subjectOr`).
-- **Branding (`branding_settings.go`, migrations 00029/00050):** instance-wide
+- **Branding (`branding_settings.go`, `brand_assets.go`, migrations 00029/00050/00069):** instance-wide
   `business_name` + `logo_url` + `banner_url` on the singleton row. Business name is the
   wordmark fallback (defaults to "Calnode") + public-page header; the logo is the email
   header image + public-page header. `GET/PATCH /v1/settings/branding` (name + opacity
@@ -898,8 +898,16 @@ as the desired state:
   (`POST/DELETE /v1/settings/branding/logo` and `.../banner`, public serve at
   `GET /branding/logo` / `GET /branding/banner`) reusing the avatar pipeline:
   `imaging.Fit` into 600x200 (logo) or 1600x800 (banner) preserving aspect ratio (no
-  crop), re-encoded PNG (keeps transparency), stored on the `/data` volume. Both URLs
-  store the relative serve path with a `?v=<ts>` cache-buster; `Handler.applyBranding`
+  crop), re-encoded PNG (keeps transparency), stored as a row in `workspace_assets`
+  (migration 00069, one row per workspace, kind and owner; avatars are the same table,
+  JPEG, keyed by user). The serve routes are `HostWorkspace`-scoped, so each public host
+  serves its own workspace's image, with an ETag of the content's SHA-256 (304 on
+  `If-None-Match`) and `nosniff`. They used to be files under `DATA_DIR`, which was shared
+  by every tenant and, on the fleet, an emptyDir wiped by every rollout. A stored URL
+  that names one of these paths with no row behind it reads as unset (`db.LogoURLSQL`,
+  `db.BannerURLSQL`, `db.AvatarURLSQL`), so an upgraded instance shows no image rather
+  than a broken one until the image is uploaded again. Both URLs
+  store the relative serve path with a `?v=<content hash>` cache-buster; `Handler.applyBranding`
   makes them absolute for emails (relative is fine on same-origin pages). The banner is
   optional and independent of the logo (each shows or hides on its own presence),
   rendered full width below the logo on `book.html`/`manage.html` (matching `.card`'s

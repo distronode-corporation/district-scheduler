@@ -46,7 +46,6 @@ magic link), and every route says which of the two it uses.
 | `CALNODE_ENCRYPTION_KEY` | as before, and it must travel with any workspace moved between instances |
 | `BASE_URL` | the identity host (below) |
 | `PUBLIC_BASE_URL` | **ignored**; each workspace's `public_host` replaces it |
-| `DATA_DIR` | where uploads (avatars, branding) are written; defaults to the relative `data`. A read-only image sets it to its mounted volume |
 | `PLATFORM_RETURN_ORIGINS` | comma-separated origins the calendar OAuth round trip may return the browser to. Unset ⇒ off, and a `return_to` is **refused**, not ignored |
 | `ADMIN_SPA` | `on` (default) or `off`. `off` stops serving the embedded admin console, so the platform's own dashboard is the only admin UI. Multi-tenant only |
 | `METRICS_ALLOW_UNAUTHENTICATED_FROM` | comma-separated CIDRs whose requests may scrape `GET /metrics` with no bearer. Empty ⇒ off, and the bearer is the only way in |
@@ -554,6 +553,11 @@ is therefore as sensitive as the database.
 
 The table list is checked against the schema's own tenant-table list at request time, so a table
 added by a later migration cannot be silently absent from every backup.
+
+Uploaded images travel too: `workspace_assets` (the logo, the banner and each member's avatar)
+is a tenant table, and its `data` column is the one binary column in the schema, so the document
+carries it as **base64** and import decodes it. Written as text it would come back damaged
+(encoding/json replaces invalid UTF-8 with U+FFFD) and still compare equal on a second export.
 
 **Import** refuses (409) unless the workspace is empty, runs in one transaction, and **forces
 `workspace_id` to the id in the URL** — the document's own value is discarded, or an export of any
