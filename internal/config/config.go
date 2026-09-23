@@ -135,13 +135,6 @@ type Config struct {
 	// where audio is being sent without reading the environment of a running container.
 	STTBaseURL string
 
-	// DataDir is where uploaded files (avatars, branding assets) are written.
-	// Defaults to the relative directory "data", which is what every existing
-	// deployment has always used; set DATA_DIR when the process runs somewhere
-	// its working directory is not writable, such as a read-only container image
-	// that mounts a volume elsewhere.
-	DataDir string
-
 	// CookieSecure sets the Secure flag on session cookies. Defaults to true
 	// when BASE_URL starts with https://, but can be overridden explicitly via
 	// COOKIE_SECURE=false for HTTPS-terminated-at-proxy setups where the binary
@@ -260,7 +253,6 @@ func Load() *Config {
 		EmbedAllowedOrigins: splitCSV(getEnv("EMBED_ALLOWED_ORIGINS", "")),
 		TrustedProxyCIDRs:   splitCSV(getEnv("TRUSTED_PROXY_CIDRS", "")),
 		STTBaseURL:          getEnv("STT_BASE_URL", ""),
-		DataDir:             getEnv("DATA_DIR", "data"),
 		// Space-separated, not comma: the value goes into a CSP source list verbatim, so
 		// it reads the same in the env var as it does in the header.
 		FrameAncestors: strings.Fields(getEnv("FRAME_ANCESTORS", "")),

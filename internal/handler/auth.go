@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/calnode/calnode/internal/db"
 )
 
 type contextKey string
@@ -79,7 +81,7 @@ func (h *Handler) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 			// DISCOVERS — on the workspace-bound handle it would find nothing and
 			// a valid key would be reported invalid.
 			err := h.platformDB().QueryRowContext(r.Context(), `
-				SELECT ak.id, u.id, u.workspace_id, u.email, u.name, u.iana_timezone, u.time_format, u.week_start, u.date_format, COALESCE(u.avatar_url,''), u.is_admin, u.is_owner,
+				SELECT ak.id, u.id, u.workspace_id, u.email, u.name, u.iana_timezone, u.time_format, u.week_start, u.date_format, `+db.AvatarURLSQL+`, u.is_admin, u.is_owner,
 				       COALESCE(u.notify_confirmation,1), COALESCE(u.notify_cancellation,1), COALESCE(u.notify_reschedule,1), COALESCE(u.notify_reminder,1),
 				       COALESCE(u.notify_host_booking,1), COALESCE(u.notify_host_cancel,1), COALESCE(u.notify_host_reschedule,1)
 				FROM api_keys ak JOIN users u ON u.id = ak.user_id
@@ -107,7 +109,7 @@ func (h *Handler) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 			// platformDB for the same reason as the API-key path above:
 			// sessions.id is global so a cookie resolves without a tenant.
 			if err := h.platformDB().QueryRowContext(r.Context(), `
-				SELECT u.id, u.workspace_id, u.email, u.name, u.iana_timezone, u.time_format, u.week_start, u.date_format, COALESCE(u.avatar_url,''), u.is_admin, u.is_owner,
+				SELECT u.id, u.workspace_id, u.email, u.name, u.iana_timezone, u.time_format, u.week_start, u.date_format, `+db.AvatarURLSQL+`, u.is_admin, u.is_owner,
 				       COALESCE(u.notify_confirmation,1), COALESCE(u.notify_cancellation,1), COALESCE(u.notify_reschedule,1), COALESCE(u.notify_reminder,1),
 				       COALESCE(u.notify_host_booking,1), COALESCE(u.notify_host_cancel,1), COALESCE(u.notify_host_reschedule,1)
 				FROM sessions s

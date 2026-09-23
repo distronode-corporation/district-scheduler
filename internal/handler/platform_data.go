@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -70,6 +71,8 @@ var exportTableOrder = []string{
 	"invite_tokens",
 	"oauth_access_tokens",
 	"oauth_auth_codes",
+	// Uploaded images. After users: an avatar row names its user.
+	"workspace_assets",
 	// Subscriptions and their delivery history.
 	"webhooks",
 	"webhook_deliveries",
@@ -186,8 +189,19 @@ func (h *Handler) exportTable(ctx context.Context, table, workspaceID string) ([
 			// TEXT arrives as []byte from one driver and string from the other; both are
 			// text as far as this schema is concerned, and normalising here is what makes
 			// an export from PostgreSQL replayable and comparable.
+			//
+			// ⛔ Except a binary column, which is base64 in the document. Its bytes are not
+			// text, and a Go string holding them is re-encoded by encoding/json with every
+			// invalid UTF-8 sequence replaced by U+FFFD: the image would come back as a
+			// different, undecodable file (or, holding a NUL, be refused by PostgreSQL on
+			// import), and a second export of the damaged rows would still match the first
+			// byte for byte.
 			if b, ok := v.([]byte); ok {
-				v = string(b)
+				if isBinaryColumn(table, col) {
+					v = base64.StdEncoding.EncodeToString(b)
+				} else {
+					v = string(b)
+				}
 			}
 			row[col] = v
 		}
@@ -315,8 +329,20 @@ func importRow(ctx context.Context, tx *db.Tx, table, workspaceID string, row ma
 		if !validColumnName(col) {
 			return fmt.Errorf("invalid column name %q", col)
 		}
+		value := importValue(v)
+		if isBinaryColumn(table, col) {
+			encoded, ok := v.(string)
+			if !ok {
+				return fmt.Errorf("column %s.%s must be a base64 string", table, col)
+			}
+			raw, err := base64.StdEncoding.DecodeString(encoded)
+			if err != nil {
+				return fmt.Errorf("column %s.%s is not valid base64: %w", table, col, err)
+			}
+			value = raw
+		}
 		cols = append(cols, col)
-		args = append(args, importValue(v))
+		args = append(args, value)
 	}
 	cols = append(cols, "workspace_id")
 	args = append(args, workspaceID)
@@ -361,6 +387,14 @@ func validColumnName(col string) bool {
 	}
 	return true
 }
+
+// binaryColumns are the columns export writes as base64 and import decodes from it, by
+// table. Every other column is text or a number and travels as itself.
+var binaryColumns = map[string]map[string]bool{
+	"workspace_assets": {"data": true},
+}
+
+func isBinaryColumn(table, col string) bool { return binaryColumns[table][col] }
 
 func isExportableTable(table string) bool {
 	for _, t := range exportTableOrder {

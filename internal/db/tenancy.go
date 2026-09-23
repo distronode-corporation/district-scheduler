@@ -58,6 +58,7 @@ var TenantTables = []string{
 	"users",
 	"webhook_deliveries",
 	"webhooks",
+	"workspace_assets",
 	"zoom_connections",
 }
 
