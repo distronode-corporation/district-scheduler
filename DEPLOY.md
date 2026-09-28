@@ -428,7 +428,7 @@ the deployment shape, and that document is the contract.
 
 ### What it needs
 
-1. **PostgreSQL 16+ with two roles.** An owner (`BYPASSRLS`) that owns the schema,
+1. **PostgreSQL 17 (the version CI tests) with two roles.** An owner (`BYPASSRLS`) that owns the schema,
    and an application role (`NOBYPASSRLS`) that owns nothing and holds DML on the
    schema's tables. ⛔ Not one role with two DSNs: startup refuses that, because one
    role means the row-level security policies are inert against the connection they

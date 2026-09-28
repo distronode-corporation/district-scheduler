@@ -4,20 +4,20 @@
 #
 # ⛔ NOT the upstream Dockerfile. That one ships SQLite + Litestream + a shell
 # entrypoint for the single-tenant "one binary, one file" story. This image is
-# what the four District regions run: MULTI_TENANT requires PostgreSQL (boot
-# refuses a sqlite DSN), so there is no Litestream, no /data volume and no
-# entrypoint script — just the static binary on a distroless base.
+# what District AI runs: MULTI_TENANT requires PostgreSQL (boot refuses a sqlite
+# DSN), so there is no Litestream, no /data volume and no entrypoint script, just
+# the static binary on a distroless base.
 #
-# What the fleet manifests (distronode-website/k8s/*/scheduler-deployment.yaml)
-# assume of this image, and this file guarantees:
+# What the platform's deployment manifests assume of this image, and this file
+# guarantees:
 #   - listens on 3000 (PORT is fixed here; the Service targets it by name)
 #   - runs as uid 10001, non-root, matching the pod securityContext
 #   - needs no writable filesystem beyond what the binary creates in DATA_DIR
-#   - reads every setting from the environment (the district-scheduler-env Secret)
+#   - reads every setting from the environment (a Kubernetes Secret, in practice)
 #
-# Everything else — the frontend build, the Go build, VERSION/COMMIT stamping —
-# is byte-for-byte the upstream recipe, so an image built here reports the same
-# /version fields as an upstream one.
+# The frontend build, the Go build and VERSION/COMMIT stamping follow the
+# upstream recipe (the binary is named district-scheduler here), so an image
+# built here reports the same /version fields as an upstream one.
 
 # ── Frontend build stage ───────────────────────────────────────────────────────
 # Digests are the multi-arch manifest-list (OCI image index) digests, not a

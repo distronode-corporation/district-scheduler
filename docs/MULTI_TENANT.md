@@ -639,7 +639,7 @@ script was refused, which is why Cloudflare's injected
 
 ## Operator checklist
 
-1. PostgreSQL 16+ with two roles: an owner (`BYPASSRLS`) and an application role (`NOBYPASSRLS`,
+1. PostgreSQL 17 (the version CI tests) with two roles: an owner (`BYPASSRLS`) and an application role (`NOBYPASSRLS`,
    owning nothing, granted DML on the schema's tables).
 2. Set `MULTI_TENANT`, both DSNs, `CALNODE_PLATFORM_TOKEN`, `CALNODE_SSO_SHARED_SECRET` (if social
    login is configured), `TRUSTED_PROXY_CIDRS` (if behind a proxy), and `BASE_URL`.

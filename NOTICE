@@ -8,10 +8,21 @@ repository.
 
 Modifications made by Distronode Corporation are also licensed under the
 Apache License, Version 2.0, and are recorded in the git history of this
-repository. The multi-tenant mode (docs/MULTI_TENANT.md) is offered back to
-the Calnode project as an opt-in feature; where it has not been accepted
-upstream it is carried here.
+repository. Fixes to shared code are offered back to the Calnode project;
+PostgreSQL support and the multi-tenant mode (docs/MULTI_TENANT.md) were
+declined upstream and are carried here.
 
 "Calnode" is a name used by the Calnode project. Distronode Corporation
 distributes this software as "District Scheduler" and does not claim any
 endorsement by, or affiliation with, the Calnode project.
+
+District AI, Distronode and the District AI and Distronode names, logos and
+branding are trademarks of Distronode Corporation. They are not licensed under
+the Apache License 2.0: a build you distribute must use its own name and
+branding, not the District Scheduler name or the District AI branding.
+
+District Scheduler is not affiliated with or endorsed by the calendar, video,
+payment, email and AI providers it can connect to (among them Google,
+Microsoft, Zoom, LiveKit, Stripe, Resend and Deepgram).
+
+Third-party dependencies keep their own licences.

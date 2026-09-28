@@ -108,7 +108,7 @@ instead of silently accumulating — see `audit/claims.yaml`'s `clean-security-s
 entry for the last time this actually caught something.)
 
 We also publish an
-[OpenSSF Scorecard](https://securityscorecards.dev/viewer/?uri=github.com/distronode-corporation/district-scheduler)
+[OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/distronode-corporation/district-scheduler)
 badge and CI-generated SBOM — see the badge on [README.md](README.md) and the
 `audit` workflow under **Actions** in this repo for the latest run.
 

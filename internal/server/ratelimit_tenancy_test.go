@@ -145,7 +145,7 @@ func TestRateLimitKey_portIsNotPartOfTheBucket(t *testing.T) {
 	if bare != upper {
 		t.Errorf("keys differ by case: %q vs %q", bare, upper)
 	}
-	// ⚠️ The `ip:` namespace arrived with M2, which added a second kind of caller half.
+	// ⚠️ The `ip:` namespace arrived with credential keys, which added a second kind of caller half.
 	// It is there so a credential hash can never collide with an address and so a key
 	// read out of a dump says which kind of caller it counts.
 	if bare != "book.acme.test|ip:203.0.113.7" {

@@ -1,5 +1,9 @@
 # Calnode Trademark & Naming Policy
 
+> **Note:** this is upstream Calnode's trademark policy, kept as the licence requires;
+> permission requests go to the Calnode maintainers. The District AI and Distronode marks
+> are covered in [NOTICE](NOTICE).
+
 Calnode's **code** is open source under [Apache-2.0](LICENSE) — you're free to use, modify,
 fork, self-host, and redistribute it. The Apache license covers the *code*; it does **not**
 grant rights to the **"Calnode" name or logo**. This short policy explains how to use the name

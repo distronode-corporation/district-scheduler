@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// M2: in multi-tenant mode an AUTHENTICATED request keys on its credential, not on the
+// In multi-tenant mode an AUTHENTICATED request keys on its credential, not on the
 // address it came from.
 //
 // ⛔ The address is the right identity for an anonymous booker and the wrong one for an
@@ -60,10 +60,10 @@ func newCredLimiterProbe(t *testing.T, multiTenant bool) credLimiterProbe {
 
 func bearer(v string) map[string]string { return map[string]string{"Authorization": "Bearer " + v} }
 
-// The case M2 exists for: the whole region's dashboard arrives from one egress address,
+// The case this exists for: the platform's dashboard arrives from one egress address,
 // and two members' keys must not share a budget.
 func TestRateLimit_twoBearersFromOneAddressGetTwoBudgets(t *testing.T) {
-	const egress = "35.245.161.119:52000" // one origin's egress, as the fork sees it
+	const egress = "203.0.113.7:52000" // a proxy's egress address
 	p := newCredLimiterProbe(t, true)
 
 	if got := p.serve("book.acme.test", egress, bearer("cno_alpha"), ""); got != http.StatusOK {
@@ -80,7 +80,7 @@ func TestRateLimit_twoBearersFromOneAddressGetTwoBudgets(t *testing.T) {
 // The session cookie is a credential too: the browser hand-off path reaches the fork the
 // same way and must not fall in with the anonymous bucket for its origin's address.
 func TestRateLimit_twoSessionsFromOneAddressGetTwoBudgets(t *testing.T) {
-	const egress = "35.245.161.119:52000"
+	const egress = "203.0.113.7:52000"
 	p := newCredLimiterProbe(t, true)
 
 	if got := p.serve("book.acme.test", egress, nil, "sess-one"); got != http.StatusOK {
@@ -115,7 +115,7 @@ func TestRateLimit_anonymousRequestsStillKeyOnTheAddress(t *testing.T) {
 // buckets, which is what the `c:`/`ip:` namespacing is for. Without it a booker could be
 // throttled by dashboard traffic that happened to hash to their address string.
 func TestRateLimit_credentialAndAnonymousDoNotShareABucket(t *testing.T) {
-	const egress = "35.245.161.119:52000"
+	const egress = "203.0.113.7:52000"
 	p := newCredLimiterProbe(t, true)
 
 	if got := p.serve("book.acme.test", egress, bearer("cno_alpha"), ""); got != http.StatusOK {
@@ -127,11 +127,11 @@ func TestRateLimit_credentialAndAnonymousDoNotShareABucket(t *testing.T) {
 }
 
 // The workspace dimension survives: one credential presented on two tenant hosts is two
-// buckets, so D14 still holds after M2. (A credential resolving one workspace on
+// buckets, so D14 still holds with credential keys. (A credential resolving one workspace on
 // another's host is a 403 at CredentialWorkspace; the limiter runs earlier and cannot
 // know that, so counting them apart is the conservative reading.)
 func TestRateLimit_credentialKeysStillCarryTheWorkspace(t *testing.T) {
-	const egress = "35.245.161.119:52000"
+	const egress = "203.0.113.7:52000"
 	p := newCredLimiterProbe(t, true)
 
 	if got := p.serve("book.acme.test", egress, bearer("cno_alpha"), ""); got != http.StatusOK {

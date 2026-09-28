@@ -9,8 +9,8 @@ import (
 	"github.com/calnode/calnode/internal/i18n"
 )
 
-// The Distronode palette, as declared by the hosted pages. Values come from
-// distronode-website/src/app/globals.css (its HSL tokens converted to hex).
+// The District AI palette, as declared by the hosted pages. Values are the District AI
+// website's colour tokens (HSL converted to hex).
 var districtPalette = map[string]string{
 	"--bk-fg":            "#14141a",
 	"--bk-primary":       "#3f36e2",
