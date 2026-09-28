@@ -226,7 +226,7 @@ func RateLimit(limit int, period time.Duration) func(http.HandlerFunc) http.Hand
 	}
 }
 
-// rateLimitKey is the bucket a request counts against (D14).
+// rateLimitKey is the bucket a request counts against.
 //
 // ⛔ In multi-tenant mode it is (workspace, caller), not the IP alone. Two tenants'
 // bookers routinely arrive from the same address — a shared office, a corporate NAT, a

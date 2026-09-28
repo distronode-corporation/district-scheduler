@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// D14: in multi-tenant mode a rate-limit bucket is (workspace, client IP), not the IP
+// In multi-tenant mode a rate-limit bucket is (workspace, client IP), not the IP
 // alone, and the IP half is the RESOLVED client IP rather than the TCP peer.
 //
 // Both halves matter and they pull in opposite directions, which is why they are tested
@@ -65,7 +65,7 @@ func newLimiterProbe(t *testing.T, multiTenant bool, cidrs []string) limiterProb
 	}}
 }
 
-// The positive half of D14: one address, one proxy, two tenants, two buckets.
+// The positive half of workspace isolation: one address, one proxy, two tenants, two buckets.
 func TestRateLimit_workspacesBehindOneProxyDoNotShareABucket(t *testing.T) {
 	const (
 		proxy  = "10.0.0.5:41000"
@@ -81,7 +81,7 @@ func TestRateLimit_workspacesBehindOneProxyDoNotShareABucket(t *testing.T) {
 	}
 
 	// Same client address, same proxy, different workspace. This is the assertion the
-	// whole test exists for: before D14 it was a 429.
+	// whole test exists for: before the workspace prefix it was a 429.
 	if got := p.serve("book.globex.test", proxy, booker); got != http.StatusOK {
 		t.Errorf("B's first request = %d; want 200 — B must not spend A's allowance", got)
 	}
