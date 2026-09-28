@@ -15,7 +15,7 @@ import (
 // API caller. The platform's dashboard reaches every tenant host from ONE egress IP per
 // region, so keyed on the address, an entire region's authenticated dashboard traffic
 // shared one 20-per-minute settings budget — the busiest workspace in the region would
-// have spent it on everyone else. That is exactly the failure the workspace prefix (D14)
+// have spent it on everyone else. That is exactly the failure the workspace prefix
 // was added to prevent, reappearing one dimension over, and the workspace prefix does
 // not help because the traffic to ONE tenant host is what shares the address.
 //
@@ -127,9 +127,9 @@ func TestRateLimit_credentialAndAnonymousDoNotShareABucket(t *testing.T) {
 }
 
 // The workspace dimension survives: one credential presented on two tenant hosts is two
-// buckets, so D14 still holds with credential keys. (A credential resolving one workspace on
-// another's host is a 403 at CredentialWorkspace; the limiter runs earlier and cannot
-// know that, so counting them apart is the conservative reading.)
+// buckets, so workspace isolation still holds with credential keys. (A credential
+// resolving one workspace on another's host is a 403 at CredentialWorkspace; the limiter
+// runs earlier and cannot know that, so counting them apart is the conservative reading.)
 func TestRateLimit_credentialKeysStillCarryTheWorkspace(t *testing.T) {
 	const egress = "203.0.113.7:52000"
 	p := newCredLimiterProbe(t, true)

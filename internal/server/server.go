@@ -38,7 +38,7 @@ import (
 // MCP server over stdio. The returned drain func blocks until the background worker
 // has finished its current poll cycle.
 func BuildHandler(ctx context.Context, cfg *config.Config, db *db.DB, logger *slog.Logger) (*handler.Handler, func()) {
-	// Before any RateLimit call below: the bucket key depends on it (D14).
+	// Before any RateLimit call below: the bucket key depends on it.
 	SetMultiTenantLimits(cfg.MultiTenant)
 
 	h := handler.New(db, logger)
