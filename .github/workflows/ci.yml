@@ -1,7 +1,7 @@
 name: CI
 
 # Type-checks the SvelteKit admin app (svelte-check) and builds + tests the Go backend on every
-# push to main and on PRs. The Go binary go:embeds frontend/build, so the frontend is built first
+# push to district (and main) and on PRs. The Go binary go:embeds frontend/build, so the frontend is built first
 # (otherwise `go build` fails on the missing embed dir). modernc SQLite is pure-Go → no CGO/C
 # toolchain needed.
 on:
@@ -22,6 +22,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -73,7 +74,7 @@ jobs:
       - name: go test
         run: go test ./...
 
-      # The targets live on fork PR #5 (feat/fuzz-targets); -fuzz takes exactly one per
+      # The targets were added in fork PR #5 (feat/fuzz-targets); -fuzz takes exactly one per
       # invocation, hence three lines. Each run starts from the committed seeds and finds
       # coverage afresh, which is the point — a regression in a validator surfaces as a
       # failing input — and a 20-second budget per target keeps the job bounded.
@@ -89,9 +90,13 @@ jobs:
   # binary go:embeds frontend/build and `go build` fails without it.
   postgres:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
-        image: postgres:17
+        # Pinned by the multi-arch index digest of postgres:17. Dependabot's docker
+        # ecosystem reads Dockerfiles, not workflow service containers, so it cannot bump
+        # this; refresh it by hand (`crane digest postgres:17`) when upstream images move.
+        image: postgres:17@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
         env:
           POSTGRES_PASSWORD: calnode_ci
           POSTGRES_DB: calnode

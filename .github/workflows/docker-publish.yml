@@ -2,19 +2,19 @@ name: Docker publish
 
 # District Scheduler: builds the multi-arch (amd64 + arm64) MULTI-TENANT image from
 # Dockerfile.district (PostgreSQL-only, distroless, no Litestream) and publishes it
-# as ghcr.io/distronode-corporation/district-scheduler. The upstream Dockerfile is
-# untouched and is not built here. Deployments pin this image BY DIGEST, never by tag.
+# as ghcr.io/distronode-corporation/district-scheduler. The repository's copy of the
+# upstream Dockerfile is not built here. Deployments pin this image BY DIGEST, never by tag.
 #
 # Upstream's tag scheme is kept as is, with `district` in place of `main`:
 #   * PR                → build only (catches cross-arch build breaks early, e.g. an
 #                         amd64-only step slipping back in). Nothing is pushed.
 #   * push to dev       → push `:dev` + `:sha-<short>`. Pre-release, for deploying a
-#                         branch to a real instance to test it before it reaches main.
+#                         branch to a real instance to test it before it reaches district.
 #                         Deliberately does NOT move `:edge` or `:latest`.
 #   * push to district  → push `:edge` + `:sha-<short>` (bleeding edge).
 #   * push a `vX.Y.Z` tag → push `:X.Y.Z`, `:X.Y`, and `:latest`, then cut a GitHub
 #                         Release. So `:latest` always tracks the newest *release*,
-#                         never raw main.
+#                         never raw district. This fork publishes no release tags.
 #
 # Pin a deployment to `:sha-<short>`, never to `:dev` or `:edge` — those move under
 # you, and then nothing records which commit an instance is actually running.
@@ -54,6 +54,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
@@ -131,6 +132,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:

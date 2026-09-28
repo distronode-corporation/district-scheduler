@@ -34,7 +34,7 @@ Once set, the **built-in video** location becomes selectable on any event type.
 ### Option B — self-hosted LiveKit
 
 Follow LiveKit's own deployment guide to stand up your server:
-[docs.livekit.io/home/self-hosting/deployment](https://docs.livekit.io/home/self-hosting/deployment/).
+[docs.livekit.io/transport/self-hosting/deployment](https://docs.livekit.io/transport/self-hosting/deployment/).
 Nothing LiveKit-specific is needed beyond a reachable WebSocket URL and an
 API key/secret pair — once your server is running, point this app at it exactly the same
 way as the Cloud path above.
@@ -48,6 +48,9 @@ requiring separate storage setup:
   are set (see `DEPLOY.md` §6), recordings become storage-ready automatically.
   `LITESTREAM_REGION` and `LITESTREAM_ENDPOINT` are optional, for non-AWS S3-compatible
   providers.
+- The fork's PostgreSQL image (`Dockerfile.district`) runs no Litestream, but recording
+  still reads the same `LITESTREAM_*` variables. On that image they name the recording
+  bucket and nothing else.
 - Turn recording on in **Settings → Storage** — the "Allow hosts to record meetings"
   toggle (`recordings_enabled`). It stays disabled until storage is ready.
 - Files land under a fixed prefix: `recordings/{room}/{UTC timestamp}.mp4` — e.g.

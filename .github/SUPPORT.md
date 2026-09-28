@@ -14,9 +14,13 @@ on what you are asking about.
   build, the admin UI, a locale): [Calnode/calnode/issues](https://github.com/Calnode/calnode/issues).
   Reporting it there gets every deployment the fix rather than only ours. We send fixes
   there ourselves, and we would rather your report reached the whole project.
-- **A security vulnerability:** use this repository's **Security** tab, privately. See
-  [SECURITY.md](../SECURITY.md). Never open a public issue for one.
-- **Setup help or "how do I…":** Discussions, not Issues.
+- **A security vulnerability:** report it privately at
+  <https://github.com/distronode-corporation/district-scheduler/security/advisories/new>.
+  **Fallback:** email opensource@distronode.com. See [SECURITY.md](../SECURITY.md). Never
+  open a public issue for one.
+- **Setup help, "how do I…" and ideas:**
+  [Discussions](https://github.com/distronode-corporation/district-scheduler/discussions),
+  not Issues.
 
 ⚠️ **We run this ourselves; we are not a support desk for your deployment.** We read
 issues about the code and we fix the ones we can reproduce. We cannot debug your host,

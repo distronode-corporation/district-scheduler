@@ -35,10 +35,12 @@ Entries below are a mixture, and which is which decides where a patch should go:
   `dependabot.yml`), booker-address validation ([#45]), Microsoft calendars being
   writable ([#55]) and moving or cancelling a CalDAV event as the account that holds it
   ([#56]).
-- **Fork-authored, pending or superseded upstream.** `GET /metrics`, `STT_BASE_URL` and
-  the `booking.reminder` webhook event are ours and still open upstream. Three fixes
-  were solved upstream by a different patch: booking emails naming the booking's host
-  ([#50]; upstream #48), the booking-page honeypot ([#51]; upstream #33) and listing
+- **Fork-authored, declined or superseded upstream.** `GET /metrics`, `STT_BASE_URL` and
+  the `booking.reminder` webhook event were offered in [#30], which was stacked on
+  PostgreSQL support and closed with it, so they stay fork-only; no fork pull request is
+  open upstream. Four were closed once upstream [#57] merged a different patch for the
+  same problem: the emailed password reset ([#53]), booking emails naming the booking's
+  host ([#50]; upstream #48), the booking-page honeypot ([#51]; upstream #33) and listing
   every calendar on a CalDAV account ([#54]; upstream #42). The sync keeps this fork's
   CalDAV listing (origin-pinned, selection-validated, no migration) and does not take
   #42's `caldav_home_url` column; it takes #33's API field name (`hp_extra`) under this
@@ -53,6 +55,7 @@ Entries below are a mixture, and which is which decides where a patch should go:
 - Anything carrying no note is upstream's, inherited.
 
 [#29]: https://github.com/Calnode/calnode/pull/29
+[#30]: https://github.com/Calnode/calnode/pull/30
 [#31]: https://github.com/Calnode/calnode/pull/31
 [#39]: https://github.com/Calnode/calnode/pull/39
 [#40]: https://github.com/Calnode/calnode/pull/40
@@ -62,9 +65,11 @@ Entries below are a mixture, and which is which decides where a patch should go:
 [#50]: https://github.com/Calnode/calnode/pull/50
 [#51]: https://github.com/Calnode/calnode/pull/51
 [#52]: https://github.com/Calnode/calnode/pull/52
+[#53]: https://github.com/Calnode/calnode/pull/53
 [#54]: https://github.com/Calnode/calnode/pull/54
 [#55]: https://github.com/Calnode/calnode/pull/55
 [#56]: https://github.com/Calnode/calnode/pull/56
+[#57]: https://github.com/Calnode/calnode/pull/57
 
 ### Upstream sync, 2026-09-21
 
@@ -103,6 +108,9 @@ what this fork had to do to take it:
   the pullfrog workflow and CLA signatures stay deleted.
 
 ### Security
+- **The admin frontend's `devalue` is 5.9.4** (GHSA-9rgm-9g3h-6x36, a denial of service on
+  malformed input, fixed in 5.9.1). `@sveltejs/kit` had resolved 5.8.1; the lockfile now
+  carries one version. Lockfile only; no direct dependency changed.
 - **A booker's email address is validated where it enters, and is never written into an
   email header unparsed.** The `To:` header was the one header field assembled from
   caller-supplied input with no encoder in front of it: `buildRaw` parsed each recipient
@@ -297,6 +305,8 @@ what this fork had to do to take it:
   ownership when the instance has none. Archived accounts are still refused.
 
 ### Changed
+- **Go toolchain pinned to 1.27.1** in `go.mod`, the version both Dockerfiles build with,
+  so CI tests the toolchain that ships (it tested 1.26.6). The `go` directive stays 1.26.0.
 - **On a multi-tenant instance an event type's booking link cannot be renamed.**
   `PATCH /v1/event-types/{slug}` answers 409 "renaming an event type's booking link is not
   available on this deployment" to any request that would change `slug`, whether or not the

@@ -16,21 +16,35 @@ What this fork adds:
   with row-level security as the isolation mechanism, a platform API for provisioning, a
   signed session hand-off, per-workspace vendor credentials, export/import and erasure.
   Everything about it is in [docs/MULTI_TENANT.md](docs/MULTI_TENANT.md). With the variable
-  unset the software is upstream Calnode, byte for byte in behaviour.
-- **A PostgreSQL-only image** — `ghcr.io/distronode-corporation/district-scheduler`, built from
+  unset none of it is reachable, and the engine behaves as upstream's does apart from the
+  branding below.
+- **A PostgreSQL-only image**: `ghcr.io/distronode-corporation/district-scheduler`, built from
   [Dockerfile.district](Dockerfile.district): distroless, non-root, no SQLite, no Litestream.
-  The upstream single-binary SQLite image is still built from the upstream `Dockerfile`.
+  This repository also keeps upstream's `Dockerfile` (the single-binary SQLite image), with
+  base images pinned by digest and the Litestream download checked against a recorded
+  checksum.
+- **District AI branding**, unconditional: the transactional email letterhead and the
+  default `EMAIL_FROM_NAME` ("District AI Scheduling"), the District AI theme on the hosted
+  booking, manage and index pages, the "Powered by District AI" backlink in the embed
+  widget, and the video room's page title.
 
-Both were offered upstream and declined on architectural grounds, so they are this fork's
-to carry. See [Relationship to upstream Calnode](#relationship-to-upstream-calnode).
+The first two were offered upstream and declined on architectural grounds, so they are this
+fork's to carry. See [Relationship to upstream Calnode](#relationship-to-upstream-calnode).
 
-Branches: `district` is what the fleet runs; `feat/multi-tenant` is the upstream-facing
-branch the pull requests are cut from. The Go module path is kept as upstream's so the fork
-rebases cleanly. See [NOTICE](NOTICE) for attribution.
+Branches: `district` is the default branch and what District AI runs. The Go module path is
+kept as upstream's so the fork syncs cleanly. See [NOTICE](NOTICE) for attribution.
 
-`Apache-2.0` · `Go 1.26` · `PostgreSQL / SQLite`
+`Apache-2.0` · `Go 1.26+ (built with 1.27.1)` · `PostgreSQL 17 / SQLite`
 
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/distronode-corporation/district-scheduler/badge)](https://securityscorecards.dev/viewer/?uri=github.com/distronode-corporation/district-scheduler) · [Audit it yourself](AUDIT.md)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/distronode-corporation/district-scheduler/badge)](https://scorecard.dev/viewer/?uri=github.com/distronode-corporation/district-scheduler) · [Audit it yourself](AUDIT.md)
+
+**Status:** in production behind District AI. Shipped as a container image by digest
+(`:edge` and `:sha-<short>` on GHCR); there are no GitHub releases, by design (see
+[Releases and versioning](#releases-and-versioning)).
+
+**Links:** [project page](https://www.distronode.com/open-source/district-scheduler) ·
+[CHANGELOG](CHANGELOG.md) · [upstream Calnode](https://github.com/Calnode/calnode). There is
+no GitLab mirror of this repository; issues and pull requests live here on GitHub.
 
 ---
 
@@ -48,18 +62,32 @@ docker run -p 3000:3000 \
   -e DATABASE_URL=postgres://app:PASS@db:5432/scheduler \
   -e DATABASE_ADMIN_URL=postgres://platform:PASS@db:5432/scheduler \
   -e CALNODE_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+  -e CALNODE_PLATFORM_TOKEN="$(openssl rand -hex 32)" \
   ghcr.io/distronode-corporation/district-scheduler:edge
 ```
 
-Read [docs/MULTI_TENANT.md](docs/MULTI_TENANT.md) before running that anywhere real: the
+`CALNODE_PLATFORM_TOKEN` is the bearer for the platform API (`/v1/platform/*`); without it
+those routes answer 404 and no workspace can be provisioned. Read
+[docs/MULTI_TENANT.md](docs/MULTI_TENANT.md) before running that anywhere real: the
 two roles are the whole of the isolation guarantee, startup verifies both, and a workspace
 is provisioned through the platform API rather than through the console. The fork publishes
 no release tags, so `:edge` is the tip of `district` and `:sha-<short>` is the tag to pin.
 See [Releases and versioning](#releases-and-versioning).
 
-**Upstream's image, for a look at the engine itself.** It is built from this repository's
-unmodified `Dockerfile` (SQLite, Litestream, single binary), needs no database, and with
-`MULTI_TENANT` unset this fork's code behaves exactly as it does:
+The image's entrypoint is the binary itself, `/district-scheduler`, so its subcommands
+follow the image name. The MCP stdio server, for a single-tenant instance on PostgreSQL:
+
+```bash
+docker run -i --rm -e DATABASE_URL=postgres://app:PASS@db:5432/scheduler \
+  ghcr.io/distronode-corporation/district-scheduler:edge mcp
+```
+
+Under `MULTI_TENANT` the stdio transport is refused (it carries no credential to resolve
+a workspace from); agents use the HTTP transport at `POST /mcp` instead.
+
+**Upstream's image, for a look at the engine itself.** Upstream Calnode builds it from its
+own `Dockerfile` (SQLite, Litestream, single binary). It needs no database, and it has
+none of this fork's additions, the District AI branding included:
 
 ```bash
 docker run -p 3000:3000 -v ./data:/data ghcr.io/calnode/calnode:latest
@@ -76,15 +104,16 @@ or the full **[DEPLOY.md](DEPLOY.md)**.
 
 ## Why District Scheduler
 
-- **One binary.** Pure-Go SQLite (no CGO) compiles to a fully static
-  binary. `docker run` it, or drop it on a VPS. Single-tenant, there are no external
-  services to orchestrate at all
-  (built-in video, if you turn it on, is the one add-on — it needs a LiveKit server).
+- **One binary.** The Go code compiles CGO-free to a fully static binary. In the
+  single-tenant SQLite shape (upstream's image) there are no external services to
+  orchestrate at all; the fork's multi-tenant image needs PostgreSQL and nothing else.
+  Built-in video, if you turn it on, is the one add-on: it needs a LiveKit server.
 - **Meetings built in.** Optional first-party video rooms (LiveKit) as a booking
-  location — guests join in-browser, no app or account. Recording lands in your own
-  Litestream backup bucket (no extra storage to provision); an AI notetaker turns each
-  call into a transcript + notes, exposed as MCP tools and webhooks. The one add-on:
-  video needs a LiveKit endpoint (Cloud or self-hosted).
+  location: guests join in-browser, no app or account. Recordings go to the bucket
+  configured by the `LITESTREAM_*` variables (the SQLite shape's backup bucket; the fork
+  image, which runs no Litestream, reads the same variables for recordings only); an AI
+  notetaker turns each call into a transcript + notes, exposed as MCP tools and webhooks.
+  Video needs a LiveKit endpoint (Cloud or self-hosted).
 - **API-first, agent-ready.** A full REST API with API keys and
   **HMAC-signed webhooks configured *via API*** — script every booking action from
   Claude, ChatGPT, n8n, or curl. Plus a native **MCP server** built into the binary
@@ -99,29 +128,6 @@ or the full **[DEPLOY.md](DEPLOY.md)**.
   with the database enforcing the boundary. Both shapes are this repository.
 - **Easy to extend.** A clean Go codebase with `sqlc`-generated queries — not a
   100-package monorepo. Add an endpoint without spelunking.
-
----
-
-## District Scheduler vs cal.com
-
-The default open-source scheduler is a SaaS monolith. This one is the opposite.
-
-| | cal.com | District Scheduler |
-|---|---|---|
-| **Codebase** | 500k+ LOC TS across ~100 packages | Lean Go + one SvelteKit app |
-| **Runtime deps** | 4 GB+ image; Redis **+** Postgres **+** API server | One static binary + PostgreSQL (or SQLite) |
-| **Database** | Postgres (+ Redis) | PostgreSQL 17, or SQLite + Litestream in single-tenant mode |
-| **Webhooks** | UI-only | **API-first**, HMAC-signed, per-webhook payloads |
-| **AI / agents** | None | REST API + webhooks **+ a native MCP server** (stdio + HTTP) |
-| **Video & recording** | Third-party links (Zoom / Meet) | **Built-in in-browser rooms + recording + AI notes** (self-hosted LiveKit) |
-| **Deploy** | Orchestrate several services | `docker run` one container |
-| **Isolation** | Application-level `org_id` filtering | **PostgreSQL row-level security**, enforced by the database ([docs/MULTI_TENANT.md](docs/MULTI_TENANT.md)) |
-| **Licence** | AGPL-3.0 | **Apache-2.0**, nothing paywalled for self-host |
-
-*(cal.com figures reflect its public footprint; see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full rationale.)*
-
-If you're weighing self-hosted schedulers and you want **small, fast, scriptable,
-and AI-ready** over feature-maximal, this one is built for you.
 
 ---
 
@@ -144,14 +150,17 @@ to n8n / Make / your own service with HMAC-signed webhooks — all configured th
 the API, not buried in a UI.
 
 **Native MCP server.** A Model Context Protocol server is compiled *into* the binary
-(official Go SDK), exposing eight first-class tools — `list_event_types`,
+(official Go SDK), exposing ten first-class tools: `list_event_types`,
 `get_event_type`, `get_available_slots`, `create_booking`, `get_booking`,
-`reschedule_booking`, `cancel_booking`, `list_bookings`. The MCP tools call the same internal services as
+`reschedule_booking`, `cancel_booking`, `list_bookings`, `get_meeting_notes` and
+`get_transcript`. The MCP tools call the same internal services as
 the REST API (no parallel code path), so booking side effects — calendar events,
 confirmation emails, webhooks, reminders — fire identically.
 
 Two transports:
-- **stdio** for local agents — run `calnode mcp` (logs to stderr, JSON-RPC on stdout).
+- **stdio** for local agents: run `calnode mcp` (logs to stderr, JSON-RPC on stdout); on
+  the fork's image the binary is `/district-scheduler`, so it is `docker run -i … mcp`
+  (single-tenant only, see [Quick start](#quick-start)).
 - **Streamable HTTP** at `POST /mcp` for remote agents. The binary is its own **OAuth 2.1
   authorization server** (dynamic client registration + PKCE), so an agent adds the
   server by URL and clicks **Connect** → signs in with the workspace's Google/Microsoft
@@ -278,8 +287,8 @@ domains, Resend email, Google & Microsoft OAuth, Litestream backups, troubleshoo
 - **Conversational booking** ("Book by chat" on the booking page + embed widget; BYO-LLM, off by default)
 - **Paid bookings** — Stripe Checkout (pay-then-book: the slot is held, confirmed on the payment webhook, auto-refunded on cancel)
 - **Zoom** — per-host OAuth; a Zoom-located booking mints a meeting under the assigned host's account
-- **Built-in video meetings (LiveKit)** — in-browser rooms as a booking location (no app or account for guests); host controls (end-for-all, hand-off **and reclaim** host, attendee screen-share toggle), **meeting recording** straight to your own **Litestream backup bucket** (the same one
-  you already use for DB backup — no extra storage to provision) with in-app downloads, **recording consent** (notice + consent-or-leave), and an **AI notetaker** (Deepgram transcript → LLM notes). Headless-consumable: MCP `get_meeting_notes`/`get_transcript` + `recording.completed`/`transcript.ready`/`notes.ready` webhooks. BYO LiveKit endpoint (Cloud or self-hosted); configured in Settings → Video — see [docs/VIDEO.md](docs/VIDEO.md)
+- **Built-in video meetings (LiveKit)** — in-browser rooms as a booking location (no app or account for guests); host controls (end-for-all, hand-off **and reclaim** host, attendee screen-share toggle), **meeting recording** straight to the bucket configured by the `LITESTREAM_*` variables
+  (the SQLite shape's backup bucket; the fork image uses them for recordings only) with in-app downloads, **recording consent** (notice + consent-or-leave), and an **AI notetaker** (Deepgram transcript → LLM notes). Headless-consumable: MCP `get_meeting_notes`/`get_transcript` + `recording.completed`/`transcript.ready`/`notes.ready` webhooks. BYO LiveKit endpoint (Cloud or self-hosted); configured in Settings → Video — see [docs/VIDEO.md](docs/VIDEO.md)
 - **9 languages** on every booker-facing surface - booking page, manage/reschedule page,
   embed widget, all four emails, and the calendar invite: **English · Spanish · French ·
   Canadian French · German · Italian · Portuguese · Dutch · Swedish**. Picked from `Accept-Language` with a
@@ -305,10 +314,10 @@ domains, Resend email, Google & Microsoft OAuth, Litestream backups, troubleshoo
 
 ## Stack
 
-- **Backend:** Go 1.26 · pure-Go SQLite (`modernc.org/sqlite`, CGO-free → static binary) · `goose` migrations
+- **Backend:** Go (`go 1.26` minimum, built and tested with 1.27.1) · PostgreSQL 17 via `pgx` in the fork image (row-level security, multi-tenant), or pure-Go SQLite (`modernc.org/sqlite`, CGO-free, the upstream single-binary shape) · `goose` migrations
 - **Admin UI:** SvelteKit 2 / Svelte 5 · Vite 8 · Tailwind 4 · shadcn-svelte (embedded at compile time via `go:embed`)
 - **Public pages:** server-rendered Go `html/template` + vanilla JS (no framework runtime)
-- **Durability:** SQLite WAL + optional Litestream replication (S3/R2) for backup & point-in-time restore
+- **Durability:** PostgreSQL in the fork image (back it up the way you back up PostgreSQL); SQLite WAL + optional Litestream replication (S3/R2) in the upstream single-binary shape
 - **Background work:** in-process job queue on the same DB — reminders, webhook delivery, calendar reconciliation. No broker.
 
 ---
@@ -321,9 +330,10 @@ A few load-bearing decisions (full detail in [docs/ARCHITECTURE.md](docs/ARCHITE
   exists once it's committed locally; syncing to Google is a retryable side effect.
 - **Time = UTC instant + IANA timezone name**, never a fixed offset — availability
   resolves to UTC per-date so DST shifts never corrupt a slot.
-- **Single process, no external services.** Durability comes from Litestream, not a
-  second datastore. (The one exception is optional built-in video: it talks to a
-  LiveKit server — Cloud or self-hosted — only when you enable video.)
+- **Single process, no external services** in the single-tenant SQLite shape: durability
+  comes from Litestream, not a second datastore. The fork's multi-tenant image adds exactly
+  one, PostgreSQL. (Optional built-in video talks to a LiveKit server, Cloud or
+  self-hosted, only when you enable video.)
 - **One process can serve many workspaces, and the database enforces the boundary.**
   Isolation is PostgreSQL row-level security rather than a predicate a query author has
   to remember, so a statement that forgets returns nothing instead of everything. The
@@ -334,8 +344,7 @@ A few load-bearing decisions (full detail in [docs/ARCHITECTURE.md](docs/ARCHITE
 
 ## Audit it yourself in 10 minutes
 
-This backend is small enough to fit entirely in one LLM's context window —
-most scheduling software (cal.com included) can't say that. **[AUDIT.md](AUDIT.md)**
+This backend is small enough to fit entirely in one LLM's context window. **[AUDIT.md](AUDIT.md)**
 turns that into a self-serve check: a copy-paste scanner block (govulncheck, gosec,
 gitleaks across full history, SBOM, semgrep — all neutral, standard tooling you run
 yourself), an adversarial LLM prompt-pack for your own coding agent, and
@@ -355,7 +364,7 @@ due-diligence accelerator.
 | [docs/DOMAINS.md](docs/DOMAINS.md) | `BASE_URL` against `PUBLIC_BASE_URL`, and custom domains |
 | [docs/VIDEO.md](docs/VIDEO.md) | Built-in video meetings: LiveKit setup, recording, consent, the AI notetaker |
 | [AUDIT.md](AUDIT.md) + [audit/claims.yaml](audit/claims.yaml) | Audit it yourself: the scanner block, the adversarial prompt-pack, and every claim mapped to how to falsify it |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Building, running and testing locally, and how a change gets forwarded upstream |
+| [CONTRIBUTING.md](.github/CONTRIBUTING.md) | Building, running and testing locally, and how a change gets forwarded upstream |
 | [SECURITY.md](SECURITY.md) | How to report a vulnerability |
 | [CHANGELOG.md](CHANGELOG.md) | What changed, and which entries are this fork's |
 
@@ -367,23 +376,26 @@ above and open a booking page; to see the embed widget, open
 
 ## Relationship to upstream Calnode
 
-This is a fork, not a rewrite, and it is kept close enough to rebase. `main` tracks
-[Calnode/calnode](https://github.com/Calnode/calnode) and is fast-forwarded on each sync;
-`district` is this fork's default branch and what [District AI](https://distronode.com)
-runs; `feat/multi-tenant` is the branch upstream-facing pull requests are cut from. The Go
-module path, the binary name and every wire identifier are upstream's (see the licence note
+This is a fork, not a rewrite, and it is kept close enough to sync. `district` is this
+fork's default branch and what [District AI](https://www.distronode.com) runs; upstream
+[Calnode/calnode](https://github.com/Calnode/calnode) is merged into it periodically, through a
+pull request of its own (the most recent is `sync/upstream-2026-09-21`). The `main` branch
+is an old snapshot of upstream that is no longer kept in step; don't open pull requests
+against it. The Go module path, the binary
+name inside upstream's image and every wire identifier are upstream's (see the licence note
 below), so a sync is a merge rather than a conflict-resolution exercise.
 
-Work sent upstream, as of September 2026:
+The fork's fixes to shared code go upstream as pull requests, cut from short-lived topic
+branches. Merged ones include duplicating event types, the empty-day and minimum-notice
+explanations, `TRUSTED_PROXY_CIDRS`, `FRAME_ANCESTORS`, Canadian French, sign-out-everywhere,
+booker-address validation and several calendar-provider fixes. The full record is
+[the pull request search](https://github.com/Calnode/calnode/pulls?q=is%3Apr+author%3Adistronode-com);
+at the time of writing none is open.
 
-- **Nine merged**: #22, #23, #24, #25, #26, #27, #32, #37, #38. Duplicate event types,
-  booking-page clarity, calendar reconnection, locale handling and constraint-code
-  handling all landed in upstream Calnode from here.
-- **Seven open**: #39, #40, #41, #43, #44, #45, #46.
-- **Two declined**: #29 (PostgreSQL support) and #31 (`MULTI_TENANT`) were declined in
-  September 2026 for architectural reasons. Upstream's product is the single binary with
-  an embedded SQLite file, and neither change fits it. They are this fork's to carry, and
-  they are the reason this fork exists.
+PostgreSQL support (Calnode #29), the operator hooks stacked on it (#30) and `MULTI_TENANT`
+(#31) were declined in September 2026 for architectural reasons: upstream's product is the
+single binary with an embedded SQLite file, and none of them fits it. They are this fork's
+to carry, and they are the reason this fork exists.
 
 Bugs in the scheduling engine itself are usually worth reporting upstream as well as here.
 Anything about `MULTI_TENANT`, the PostgreSQL paths or the `Dockerfile.district` image
@@ -391,7 +403,17 @@ belongs here: upstream does not ship them.
 
 ---
 
-## License
+## Contributing, security and conduct
+
+- [CONTRIBUTING.md](.github/CONTRIBUTING.md): building, testing, branches, and whether a
+  change belongs upstream.
+- [SECURITY.md](SECURITY.md): report a vulnerability privately, never in a public issue.
+- [CODE_OF_CONDUCT.md](.github/CODE_OF_CONDUCT.md): how we expect people to behave here.
+- [SUPPORT.md](.github/SUPPORT.md): where questions, bugs and District AI product support go.
+
+---
+
+## License and trademarks
 
 [Apache-2.0](LICENSE). The full scheduler is self-hostable, and nothing previously
 free is ever paywalled.
@@ -399,13 +421,18 @@ free is ever paywalled.
 The **code** is Apache-2.0; the **"Calnode" name and logo** are not — see
 [TRADEMARK.md](TRADEMARK.md). This repository is the renamed fork that policy asks for:
 it is called District Scheduler, it is run by
-[Distronode Corporation](https://distronode.com), and it is not the official Calnode.
-[NOTICE](NOTICE) carries the attribution and the statement that upstream does not endorse
-it.
+[Distronode Corporation](https://www.distronode.com), and it is not the official Calnode.
+
+District AI, Distronode and the District AI and Distronode names, logos and branding are
+trademarks of Distronode Corporation. They are not licensed under the Apache License 2.0:
+a build you distribute must use its own name and branding, not the District Scheduler name
+or the District AI branding. [NOTICE](NOTICE) carries the attribution, both trademark
+statements and the statement that upstream does not endorse this fork.
 
 **The `calnode`-prefixed identifiers are kept on purpose.** They are compatibility
 surfaces, not branding left behind: the Go module path `github.com/calnode/calnode`, the
-binary name `calnode`, `CALNODE_*` environment variables, `X-Calnode-*` headers,
+`cmd/calnode` entry point (upstream's image names the binary `calnode`; the fork's image
+names it `district-scheduler`), `CALNODE_*` environment variables, `X-Calnode-*` headers,
 `calnode_*` metric names and cookies, the `cno_` API-key prefix, the
 `<calnode-booking>` embed element and `window.Calnode`. Renaming any of them would break
 an existing deployment's configuration, an operator's dashboards or a customer's embed
@@ -415,4 +442,4 @@ for no gain, and would turn every upstream sync into a rename conflict.
 file you are editing already carries. There is no fork CLA: upstream's CLA assigns
 relicensing rights to the Calnode project, which this fork cannot accept on anyone's
 behalf. If a change is one we forward upstream, upstream's CLA applies to it there, and
-[CONTRIBUTING.md](CONTRIBUTING.md) says how that works.
+[CONTRIBUTING.md](.github/CONTRIBUTING.md) says how that works.

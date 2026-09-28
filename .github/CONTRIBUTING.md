@@ -8,13 +8,17 @@ District Scheduler is Distronode Corporation's Apache-2.0 fork of
 [Calnode](https://github.com/Calnode/calnode). Most of the code is shared with
 upstream, so the first question on any change is which of the two it belongs to.
 There is a short section on that at the bottom, and
-[SUPPORT.md](SUPPORT.md) covers the same question for bug reports.
+[SUPPORT.md](SUPPORT.md) covers the same question for bug reports. Questions and ideas go
+to [Discussions](https://github.com/distronode-corporation/district-scheduler/discussions),
+not Issues.
 
 ## Prerequisites
 
-- **Go 1.26+** (the SQLite build is pure-Go — no CGO, no C toolchain needed)
+- **Go 1.26+**; `go.mod` pins the 1.27.1 toolchain, which is what CI tests and both
+  Dockerfiles build with (the SQLite build is pure-Go, so no CGO and no C toolchain)
 - **Node 20+** and **pnpm** (the admin UI is SvelteKit; we use `pnpm`, not npm)
-- **PostgreSQL 16+**, only if you are touching SQL or the tenancy model. See Tests.
+- **PostgreSQL 17** (what CI's `postgres` job runs), only if you are touching SQL or the
+  tenancy model. See Tests.
 
 ## Layout
 
@@ -159,7 +163,8 @@ Background and the full list of limitations (2-form plurals, no RTL) are in
 - **`dev`** is the pre-release lane. A push to it publishes `:dev` and `:sha-<short>`
   and deliberately moves neither `:edge` nor `:latest`, so a branch can be deployed to
   a real instance and exercised before it reaches the default branch.
-- **`main`** tracks upstream and is fast-forwarded on each sync. Don't open PRs against it.
+- **`main`** is an old snapshot of upstream that is no longer kept in step; upstream is
+  merged into `district` through a sync pull request instead. Don't open PRs against `main`.
 - Pin a deployment to `:sha-<short>`, never to `:dev`, `:edge` or `:latest`. Those move
   under you and then nothing records which commit an instance is running. This fork
   itself ships by digest and cuts no release lines.
@@ -170,11 +175,13 @@ Background and the full list of limitations (2-form plurals, no RTL) are in
 2. `go test ./...` green (both engines if you touched SQL); `make build` succeeds; run
    `pnpm test:visual` if you touched UI/theme.
 3. Keep the change focused; explain the *why* in the PR description.
-4. **There is no CLA on this fork.** Your contribution is accepted under the terms of
-   the [Apache License 2.0](../LICENSE), §5 of which already covers it: unless you say
-   otherwise in writing, anything you deliberately submit for inclusion is submitted
-   under that licence. You keep the copyright to your work. No bot will comment on your
-   PR and there is nothing to sign.
+4. Read the licence of contributions below; there is nothing to sign.
+
+## Licence of contributions
+
+By contributing you agree that your contribution is licensed under the Apache License 2.0,
+as section 5 of the licence provides. There is no CLA and no sign-off requirement. You keep
+the copyright to your work, and no bot will comment on your PR.
 
 ## Should this go upstream instead?
 

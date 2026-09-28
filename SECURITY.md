@@ -5,6 +5,11 @@ Distronode Corporation.
 
 ## Supported version
 
+| Version | Supported |
+|---|---|
+| The tip of `district` (image `:edge`, or the newest `:sha-<short>`) | Yes |
+| Any older image digest | No: upgrade to the newest digest |
+
 The `district` branch, as deployed. There are no release lines and no backports: a fix
 lands on `district` and reaches the fleet on the next image build. If you are running an
 older image digest, the fix for a reported issue is an upgrade.
@@ -12,8 +17,11 @@ older image digest, the fix for a reported issue is an upgrade.
 ## Reporting a vulnerability
 
 Please report privately, through GitHub's private vulnerability reporting on **this**
-repository: open the **Security** tab and use **Report a vulnerability**. That opens a
-private thread visible only to you and the maintainers.
+repository: <https://github.com/distronode-corporation/district-scheduler/security/advisories/new>
+(the **Security** tab, **Report a vulnerability**). That opens a private thread visible
+only to you and the maintainers.
+
+**Fallback:** email opensource@distronode.com if you cannot use GitHub's reporting.
 
 If the issue is in upstream Calnode code rather than in this fork's changes, please also
 report it to Calnode, so that every other deployment gets the fix and not just ours.
@@ -36,7 +44,7 @@ If you are not sure whether something is a vulnerability, report it anyway and s
 
 ## What to expect
 
-- **An acknowledgement within a few days.** If you have not heard anything after a week,
+- **An acknowledgement within a few working days.** If you have not heard anything after a week,
   please post a follow-up on the same private thread in case it was missed.
 - **Then either a fix or an explanation.** If we agree it is a vulnerability, we will
   tell you roughly when a fix will land and let you know when it ships. If we do not

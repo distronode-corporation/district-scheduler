@@ -23,12 +23,19 @@ on:
 permissions:
   contents: read
 
+# One run per ref; a newer push supersedes an older PR run, but a push or scheduled run
+# on the default branch is left to finish so the published Scorecard result is complete.
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   scorecard:
     name: OpenSSF Scorecard
     # scorecard-action documents `pull_request` as experimental, and this job publishes results and needs id-token: write, neither of which means anything on a PR.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       security-events: write
       id-token: write
@@ -37,7 +44,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.3 — floating v2 tag no longer resolves upstream; pinned to commit per Scorecard's own pinned-deps recommendation
+      - uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4 — floating v2 tag no longer resolves upstream; pinned to commit per Scorecard's own pinned-deps recommendation
         with:
           results_file: results.sarif
           results_format: sarif
@@ -58,6 +65,7 @@ jobs:
     # An SBOM published per pull request is noise; the one that matters is the one for what is on the branch.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -73,6 +81,7 @@ jobs:
   claims-guard:
     name: Deterministic claims guard
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -11,14 +11,14 @@ import (
 // base providing the outer layout plus reusable partials. The plain-text body
 // (booking.go) stays the multipart/alternative fallback.
 //
-// The design is Distronode's transactional letterhead, whose single source is
-// distronode-website/src/emails/EmailLayout.tsx. Its three signature motifs are
+// The design is Distronode's transactional letterhead, whose source of truth is the
+// District AI platform's own email layout. Its three signature motifs are
 // reproduced here: the header (logo left, uppercase muted right-aligned lines,
 // underlined by a 2.5px slate rule with a 1px hairline 3px below it), the kv
 // fact block (sans rows behind a 2px teal LEFT border) and the footer (1px top
 // rule, uppercase, letter-spaced, tiny and muted).
 //
-// ⛔ CONSTRAINTS THAT ARE NOT STYLE PREFERENCES (same as EmailLayout.tsx):
+// ⛔ CONSTRAINTS THAT ARE NOT STYLE PREFERENCES (the same ones the platform's layout observes):
 //
 //   - TABLE-BASED STRUCTURE. Outlook's Word rendering engine implements neither
 //     flexbox nor grid, so a layout built from them collapses to a single column

@@ -2,7 +2,7 @@
 
 Status: living doc. The source of truth is the code; this explains how the pieces
 fit and *why*. File references point at packages/symbols (`internal/...`). New to the
-codebase? Start here, then see [CONTRIBUTING.md](../CONTRIBUTING.md) for build/test.
+codebase? Start here, then see [CONTRIBUTING.md](../.github/CONTRIBUTING.md) for build/test.
 
 ---
 

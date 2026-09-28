@@ -233,7 +233,7 @@ func RateLimit(limit int, period time.Duration) func(http.HandlerFunc) http.Hand
 // CDN — and with one bucket the busier workspace would spend the quieter one's
 // allowance, which is one tenant degrading another's service through no fault of either.
 //
-// ⛔ AND THE CALLER HALF IS THE CREDENTIAL WHEN THERE IS ONE, NOT THE IP (M2). The
+// ⛔ AND THE CALLER HALF IS THE CREDENTIAL WHEN THERE IS ONE, NOT THE IP. The
 // address is the right identity for an anonymous booker and the wrong one for an API
 // caller: the platform's dashboard reaches every tenant host from ONE egress IP per
 // region, so keyed on the address, an entire region's authenticated dashboard traffic
