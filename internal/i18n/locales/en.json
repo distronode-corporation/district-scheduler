@@ -172,5 +172,13 @@
 
   "index_title": "Book a meeting",
   "index_intro": "Choose a meeting type to see available times.",
-  "index_none": "There are no meetings available to book right now."
+  "index_none": "There are no meetings available to book right now.",
+
+  "calendar_degraded_notice": "Some calendar information couldn't be loaded, so availability may be incomplete.",
+
+  "directory_book": "Book",
+  "directory_empty": "Nothing bookable here right now.",
+  "directory_members": "Team members",
+  "directory_person_subtitle": "Book time with %s",
+  "directory_team_subtitle": "Book time with the %s team"
 }

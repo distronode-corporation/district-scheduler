@@ -165,5 +165,13 @@
 
   "index_title": "Meeting buchen",
   "index_intro": "Wählen Sie eine Meeting-Art, um verfügbare Zeiten zu sehen.",
-  "index_none": "Derzeit stehen keine Meetings zur Buchung bereit."
+  "index_none": "Derzeit stehen keine Meetings zur Buchung bereit.",
+
+  "calendar_degraded_notice": "Einige Kalenderinformationen konnten nicht geladen werden, daher ist die Verfügbarkeit möglicherweise unvollständig.",
+
+  "directory_book": "Buchen",
+  "directory_empty": "Derzeit ist nichts buchbar.",
+  "directory_members": "Teammitglieder",
+  "directory_person_subtitle": "Zeit mit %s buchen",
+  "directory_team_subtitle": "Zeit mit dem Team %s buchen"
 }

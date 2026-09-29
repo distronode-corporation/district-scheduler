@@ -172,5 +172,13 @@
 
   "index_title": "Reservar una reunión",
   "index_intro": "Elige un tipo de reunión para ver los horarios disponibles.",
-  "index_none": "Ahora mismo no hay reuniones disponibles para reservar."
+  "index_none": "Ahora mismo no hay reuniones disponibles para reservar.",
+
+  "calendar_degraded_notice": "No se pudo cargar parte de la información del calendario, por lo que la disponibilidad puede estar incompleta.",
+
+  "directory_book": "Reservar",
+  "directory_empty": "No hay nada reservable por ahora.",
+  "directory_members": "Miembros del equipo",
+  "directory_person_subtitle": "Reserva tiempo con %s",
+  "directory_team_subtitle": "Reserva tiempo con el equipo %s"
 }

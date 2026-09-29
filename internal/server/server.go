@@ -667,6 +667,8 @@ func New(ctx context.Context, cfg *config.Config, db *db.DB, logger *slog.Logger
 	mux.HandleFunc("GET /embed.js", h.Scoped(handler.HostWorkspace, (*H).EmbedJS))
 	mux.HandleFunc("GET /booking.css", h.Scoped(handler.HostWorkspace, (*H).BookingCSS))
 	mux.HandleFunc("GET /book/{slug}", h.Scoped(handler.HostWorkspace, (*H).BookPage))
+	mux.HandleFunc("GET /u/{handle}", h.Scoped(handler.HostWorkspace, (*H).PersonPage))
+	mux.HandleFunc("GET /team/{slug}", h.Scoped(handler.HostWorkspace, (*H).TeamPage))
 
 	// Built-in LiveKit video room (public): the page, its vendored assets, and the token
 	// exchange. The signed room token in the join URL is the capability — no auth.
@@ -814,7 +816,8 @@ func New(ctx context.Context, cfg *config.Config, db *db.DB, logger *slog.Logger
 	// position that covers everything: outside the mux so every 404 and every static asset
 	// carries the headers, and outside the CSRF check so its 403 does too. It sets before
 	// calling through, so a handler with its own opinion about one of these keys still wins.
-	return TrustClientIP(trustedProxies)(RequestID(Logging(logger, SecurityHeaders(SameOriginCheck(mux))))), drain
+	// Recover (upstream) sits inside SecurityHeaders, so a recovered panic's 500 carries them too.
+	return TrustClientIP(trustedProxies)(RequestID(Logging(logger, SecurityHeaders(Recover(logger, SameOriginCheck(mux)))))), drain
 }
 
 // seedSMTPToDB writes env-var SMTP settings into the DB on first boot so they

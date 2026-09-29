@@ -165,5 +165,13 @@
 
   "index_title": "Réserver une réunion",
   "index_intro": "Choisissez un type de réunion pour voir les créneaux disponibles.",
-  "index_none": "Aucune réunion n'est disponible à la réservation pour le moment."
+  "index_none": "Aucune réunion n'est disponible à la réservation pour le moment.",
+
+  "calendar_degraded_notice": "Certaines informations d'agenda n'ont pas pu être chargées, les disponibilités peuvent donc être incomplètes.",
+
+  "directory_book": "Réserver",
+  "directory_empty": "Rien à réserver pour le moment.",
+  "directory_members": "Membres de l'équipe",
+  "directory_person_subtitle": "Réservez du temps avec %s",
+  "directory_team_subtitle": "Réservez du temps avec l'équipe %s"
 }
