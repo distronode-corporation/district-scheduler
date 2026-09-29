@@ -165,5 +165,13 @@
 
   "index_title": "Prenota una riunione",
   "index_intro": "Scegli un tipo di riunione per vedere gli orari disponibili.",
-  "index_none": "Al momento non ci sono riunioni disponibili per la prenotazione."
+  "index_none": "Al momento non ci sono riunioni disponibili per la prenotazione.",
+
+  "calendar_degraded_notice": "Non è stato possibile caricare alcune informazioni del calendario, quindi la disponibilità potrebbe essere incompleta.",
+
+  "directory_book": "Prenota",
+  "directory_empty": "Niente da prenotare al momento.",
+  "directory_members": "Membri del team",
+  "directory_person_subtitle": "Prenota del tempo con %s",
+  "directory_team_subtitle": "Prenota del tempo con il team %s"
 }

@@ -67,7 +67,7 @@ func TestReplaceReminderJobs_upsertSurvivesTheLosingInterleaving(t *testing.T) {
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO jobs (id, type, payload, run_at, status, attempts, max_attempts)
 		VALUES (?, 'reminder.send', ?, ?, 'pending', 0, 3)
-		ON CONFLICT (workspace_id, type, payload) DO NOTHING`,
+		ON CONFLICT (workspace_id, type, payload) WHERE status IN ('pending', 'running') DO NOTHING`,
 		uid.New(), payload, oldRunAt); err != nil {
 		t.Fatalf("create-side insert: %v", err)
 	}
@@ -143,7 +143,7 @@ func waitForLockWaiter(t *testing.T, database *db.DB) {
 			SELECT COUNT(*) FROM pg_stat_activity
 			WHERE datname = current_database()
 			  AND (wait_event_type = 'Lock'
-			       OR (state = 'active' AND query LIKE '%ON CONFLICT (workspace_id, type, payload) DO UPDATE%'))`).
+			       OR (state = 'active' AND query LIKE '%ON CONFLICT (workspace_id, type, payload) WHERE status IN (''pending'', ''running'') DO UPDATE%'))`).
 			Scan(&waiters); err != nil {
 			t.Fatalf("read pg_stat_activity: %v", err)
 		}

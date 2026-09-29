@@ -107,6 +107,43 @@ what this fork had to do to take it:
   `.github/`, `Dockerfile`, `README.md` and `SECURITY.md` keep this fork's versions;
   the pullfrog workflow and CLA signatures stay deleted.
 
+### Upstream sync, 2026-09-29
+
+`upstream/main` at `7f73d7d2` (0.10.0 plus the fixes after it) merged onto `district`.
+Upstream's migrations 00062-00067 are this fork's 00069-00074, each in both dialects.
+
+- **A second Microsoft account no longer replaces the first** (upstream #99, `56fa877d`).
+  This fork had the bug, with Microsoft calendar live in production: the connection was
+  keyed on an email the id_token did not always carry, and an empty key deleted the other
+  row. The scopes now request `profile` and `email`, the key falls back to `tid:oid`, and a
+  token identifying no account is refused at connect. The refusal reaches the website's
+  return URL as `reason=no_account_identity`. A test here drives `Exchange` against a fake
+  token endpoint to prove the refusal deletes nothing.
+- **LiveKit host takeover is explained, not silent** (#101), and **room join URLs are
+  re-minted on reschedule** (#98).
+- **Per-person and team booking pages** (`GET /u/{handle}`, `GET /team/{slug}`), both
+  HostWorkspace-scoped like `/book/{slug}`. `users.handle` is unique per WORKSPACE
+  (`idx_users_handle (workspace_id, handle)`), not instance-wide as upstream has it.
+- **Multiple custom-hours blocks per override date**, cancellations attributed
+  server-side, reschedule/cancel routed to the provider holding the event (new
+  `bookings.external_provider`), calendar lists that follow pagination, and SMTP AUTH LOGIN
+  when a server does not offer PLAIN.
+- **Deleting a user cascades** to their booking-host rows and OAuth codes and tokens
+  (00070). Orphaned OAuth rows are deleted first, or adding the foreign keys would fail on
+  any database that already has them.
+- **A failed confirmation email is retried and then flagged** (`bookings.confirm_failed`).
+- **Jobs record `finished_at`**, and the job uniqueness index is now partial
+  (`ux_jobs_type_payload_live`, pending and running rows only), so a finished job no longer
+  blocks the same payload. Every upsert against it names the predicate, which both engines
+  require. That fixed a bug of this fork's own: the notetaker's enqueue still targeted
+  `(type, payload)` after 00060 made the index per workspace, so it failed on every call.
+- **Two SQLite-only constructs ported:** the new in-transaction hourly throttle used
+  `COLLATE NOCASE`, which fails on PostgreSQL and would have made every booking a 500; it
+  is `LOWER() = LOWER()`, as this fork's pre-check already was. The webhook worker's
+  "mark delivery failed" now runs on the job's workspace handle, since
+  `webhook_deliveries` is a tenant table under RLS.
+- `signatures/version1/cla.json` stays deleted.
+
 ### Security
 - **The admin frontend's `devalue` is 5.9.4** (GHSA-9rgm-9g3h-6x36, a denial of service on
   malformed input, fixed in 5.9.1). `@sveltejs/kit` had resolved 5.8.1; the lockfile now

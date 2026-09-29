@@ -113,6 +113,7 @@ func (h *Handler) ManagePage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+	accentColor = accentOrDefault(accentColor)
 
 	if b.LocationType != "" {
 		locType = b.LocationType
@@ -293,6 +294,11 @@ func (h *Handler) RescheduleByToken(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) rescheduleSideEffects(bCopy booking.Booking, capturedEtID string, previousStart, previousEnd time.Time) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	// LiveKit join URLs expire with the original meeting: re-mint them first so the
+	// email data loaded below, the manage page, and the stored record all carry
+	// links valid past the new end (#98). Same room, new expiry.
+	h.remintLiveKitLinks(ctx, &bCopy)
 
 	d, err := h.loadCancellationData(ctx, &bCopy)
 	if err != nil {

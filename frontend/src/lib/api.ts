@@ -1,5 +1,6 @@
 export type User = {
 	booking_accent: string;
+	handle?: string;
 	id: string;
 	email: string;
 	name: string;
@@ -230,6 +231,7 @@ export type TeamMember = {
 	id: string;
 	email: string;
 	name: string;
+	handle?: string;
 	timezone: string;
 	is_admin: boolean;
 	is_owner: boolean;

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -350,9 +351,66 @@ func TestListCalendars_selectNamesEveryDecodedProperty(t *testing.T) {
 	}
 }
 
+func TestListCalendars_followsNextLink(t *testing.T) {
+	c := newTestClient(t)
+	connect(t, c, "u1")
+
+	var calls []string
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.URL.String())
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("$skiptoken") == "" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"value":           []map[string]any{graphCalendars[0]},
+				"@odata.nextLink": srv.URL + "/me/calendars?$skiptoken=page2",
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"value": []map[string]any{graphCalendars[1]},
+		})
+	}))
+	defer srv.Close()
+	c.apiBase = srv.URL
+
+	got, err := c.ListCalendars(context.Background(), "u1", "")
+	if err != nil {
+		t.Fatalf("ListCalendars: %v", err)
+	}
+	want := []calendar.CalendarInfo{
+		{ID: "cal-own", Name: "Calendar", Primary: true, Writable: true},
+		{ID: "cal-shared", Name: "Team rota", Primary: false, Writable: false},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ListCalendars =\n  %+v\nwant\n  %+v", got, want)
+	}
+	if len(calls) != 2 {
+		t.Errorf("expected 2 page fetches, got %d: %v", len(calls), calls)
+	}
+}
+
 func mkIDToken(tid string) string {
 	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"tid":"` + tid + `"}`))
 	return "header." + payload + ".sig"
+}
+
+func mkIDTokenClaims(claims map[string]string) string {
+	parts := make([]string, 0, len(claims)*2)
+	for k, v := range claims {
+		part, _ := json.Marshal(v)
+		parts = append(parts, `"`+k+`":`+string(part))
+	}
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{` + strings.Join(parts, ",") + `}`))
+	return "header." + payload + ".sig"
+}
+
+func idToken(t *testing.T, raw string) *oauth2.Token {
+	t.Helper()
+	if raw == "" {
+		return &oauth2.Token{}
+	}
+	return (&oauth2.Token{}).WithExtra(map[string]any{"id_token": raw})
 }
 
 func TestAccountKindFromIDToken(t *testing.T) {
@@ -373,6 +431,128 @@ func TestAccountKindFromIDToken(t *testing.T) {
 		if got := accountKindFromIDToken(tok); got != tc.want {
 			t.Errorf("%s: accountKindFromIDToken=%q; want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestAccountIdentityFromIDToken(t *testing.T) {
+	cases := []struct {
+		name   string
+		claims map[string]string
+		raw    string
+		want   string
+	}{
+		{"preferred_username wins", map[string]string{"preferred_username": "a@x.com", "email": "b@x.com"}, "", "a@x.com"},
+		{"email fallback", map[string]string{"email": "b@x.com"}, "", "b@x.com"},
+		{"tid:oid fallback", map[string]string{"tid": "t1", "oid": "o1"}, "", "t1:o1"},
+		{"oid without tid is nothing", map[string]string{"oid": "o1"}, "", ""},
+		{"no id_token", nil, "", ""},
+		{"malformed", nil, "not-a-jwt", ""},
+	}
+	for _, tc := range cases {
+		var tok *oauth2.Token
+		if tc.raw != "" {
+			tok = idToken(t, tc.raw)
+		} else if tc.claims != nil {
+			tok = idToken(t, mkIDTokenClaims(tc.claims))
+		} else {
+			tok = idToken(t, "")
+		}
+		if got := accountIdentityFromIDToken(tok); got != tc.want {
+			t.Errorf("%s: accountIdentityFromIDToken=%q; want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestExchangeScopesRequestIdentity(t *testing.T) {
+	c := newTestClient(t)
+	var scopes []string
+	for _, s := range c.config.Scopes {
+		scopes = append(scopes, s)
+	}
+	for _, want := range []string{"openid", "profile", "email", "offline_access"} {
+		found := false
+		for _, s := range scopes {
+			if s == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("scopes=%v; want %q (account identification, #99)", scopes, want)
+		}
+	}
+}
+
+// tokenServer answers the OAuth code exchange with an id_token carrying claims.
+func tokenServer(t *testing.T, c *Client, claims map[string]string) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "a", "token_type": "Bearer", "refresh_token": "r",
+			"expires_in": 3600, "id_token": mkIDTokenClaims(claims),
+		})
+	}))
+	t.Cleanup(srv.Close)
+	c.config.Endpoint = oauth2.Endpoint{TokenURL: srv.URL, AuthStyle: oauth2.AuthStyleInParams}
+}
+
+func countConnections(t *testing.T, c *Client, userID string) int {
+	t.Helper()
+	var n int
+	if err := c.db.QueryRow(`SELECT COUNT(*) FROM calendar_connections WHERE user_id = ?`, userID).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	return n
+}
+
+// TestExchange_noIdentityRefusesAndKeepsTheOtherAccount is the other half of #99: a
+// token that identifies no account is refused at connect, and the refusal deletes
+// nothing, so an account already connected survives.
+func TestExchange_noIdentityRefusesAndKeepsTheOtherAccount(t *testing.T) {
+	c := newTestClient(t)
+	ctx := context.Background()
+	seedUser(t, c.db, "u1")
+	tok := &oauth2.Token{AccessToken: "a", RefreshToken: "r", Expiry: time.Now().Add(time.Hour)}
+	if err := c.saveToken(ctx, "u1", "primary", "t1:o1", "work", tok); err != nil {
+		t.Fatalf("save first: %v", err)
+	}
+
+	tokenServer(t, c, map[string]string{"tid": "t1"}) // no username, email or oid
+	if err := c.Exchange(ctx, "u1", "code", ""); !errors.Is(err, ErrNoAccountIdentity) {
+		t.Fatalf("Exchange err = %v; want ErrNoAccountIdentity", err)
+	}
+	if n := countConnections(t, c, "u1"); n != 1 {
+		t.Errorf("connections after refused exchange = %d; want 1 (the first account kept)", n)
+	}
+
+	tokenServer(t, c, map[string]string{"tid": "t1", "oid": "o2"})
+	if err := c.Exchange(ctx, "u1", "code", ""); err != nil {
+		t.Fatalf("Exchange with tid:oid: %v", err)
+	}
+	if n := countConnections(t, c, "u1"); n != 2 {
+		t.Errorf("connections after second account = %d; want 2", n)
+	}
+}
+
+// TestSaveToken_distinctFallbackIdentitiesCoexist is the #99 regression: two accounts
+// whose tenants send no email claims must not collapse onto each other.
+func TestSaveToken_distinctFallbackIdentitiesCoexist(t *testing.T) {
+	c := newTestClient(t)
+	ctx := context.Background()
+	seedUser(t, c.db, "u1")
+	tok := &oauth2.Token{AccessToken: "a", RefreshToken: "r", Expiry: time.Now().Add(time.Hour)}
+	if err := c.saveToken(ctx, "u1", "primary", "t1:o1", "work", tok); err != nil {
+		t.Fatalf("save first: %v", err)
+	}
+	if err := c.saveToken(ctx, "u1", "primary", "t1:o2", "work", tok); err != nil {
+		t.Fatalf("save second: %v", err)
+	}
+	var n int
+	if err := c.db.QueryRow(`SELECT COUNT(*) FROM calendar_connections WHERE user_id = 'u1'`).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("connections = %d; want 2 (no replacement)", n)
 	}
 }
 

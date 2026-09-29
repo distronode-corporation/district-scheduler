@@ -165,5 +165,13 @@
 
   "index_title": "Boka ett möte",
   "index_intro": "Välj en mötestyp för att se lediga tider.",
-  "index_none": "Det finns inga möten att boka just nu."
+  "index_none": "Det finns inga möten att boka just nu.",
+
+  "calendar_degraded_notice": "Viss kalenderinformation kunde inte läsas in, så tillgängligheten kan vara ofullständig.",
+
+  "directory_book": "Boka",
+  "directory_empty": "Inget att boka just nu.",
+  "directory_members": "Teammedlemmar",
+  "directory_person_subtitle": "Boka tid med %s",
+  "directory_team_subtitle": "Boka tid med %s-teamet"
 }

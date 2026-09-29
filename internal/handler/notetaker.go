@@ -64,11 +64,17 @@ func (h *Handler) enqueueJob(ctx context.Context, typ string, payload any) error
 	// deliberately not the RFC 3339 the reminder path writes: the worker's
 	// "run_at <= ?" compares text, and the space-separated form sorts before any
 	// T-separated one, which is what makes these jobs due immediately.
+	//
+	// ⛔ The conflict target must name the unique index exactly, predicate included: it is
+	// ux_jobs_type_payload_live ON jobs (workspace_id, type, payload) WHERE status IN
+	// ('pending', 'running') (00072). Both engines refuse a target that matches no index
+	// ("ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint"), and this
+	// one said (type, payload) from 00060 on, so every notetaker enqueue failed.
 	now := dbtime.Now()
 	_, err := h.db.ExecContext(ctx, `
 		INSERT INTO jobs (id, type, payload, run_at, status, attempts, max_attempts)
 		VALUES (?, ?, ?, ?, 'pending', 0, 3)
-		ON CONFLICT(type, payload) DO UPDATE SET
+		ON CONFLICT(workspace_id, type, payload) WHERE status IN ('pending', 'running') DO UPDATE SET
 			status = 'pending', run_at = ?, attempts = 0,
 			last_error = NULL, locked_until = NULL`,
 		uid.New(), typ, string(b), now, now)
