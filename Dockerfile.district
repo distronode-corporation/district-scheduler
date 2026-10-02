@@ -25,7 +25,13 @@
 # this file, and pinning a single-arch digest would break the other arch at pull time.
 # Get them with `crane digest <image>`; `docker inspect` on a pulled image gives the
 # single-arch digest instead.
-FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS frontend-builder
+#
+# ⛔ Both build stages run on $BUILDPLATFORM, never under QEMU. The frontend output is
+# static files, identical for every architecture, and the Go stage cross-compiles with
+# CGO off and GOARCH=$TARGETARCH, so neither needs to execute arm64 code. Emulated, the
+# arm64 `pnpm install` hung until the 60-minute job timeout (Dependabot #41 and #32,
+# 2026-10-01 and -02). Only the final stage is per-architecture.
+FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS frontend-builder
 
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 
@@ -38,7 +44,7 @@ COPY frontend/ .
 RUN pnpm build
 
 # ── Go build stage ─────────────────────────────────────────────────────────────
-FROM golang:1.27.1-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.1-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 AS builder
 
 RUN apk add --no-cache ca-certificates
 
