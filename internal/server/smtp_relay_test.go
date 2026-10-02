@@ -65,7 +65,7 @@ func TestSMTPRelayAtBootAndSettingsReload(t *testing.T) {
 			}
 			ctx, cancel := context.WithCancel(t.Context())
 			h, drain := BuildHandler(ctx, &config.Config{
-				BaseURL: "https://calnode.localhost", DataDir: t.TempDir(),
+				BaseURL:  "https://calnode.localhost",
 				SMTPHost: "smtp.example.com", SMTPPort: "465", SMTPTLS: true,
 				EmailFrom: "from@example.com", SMTPConnectHost: host, SMTPConnectPort: port,
 			}, database, logger)
