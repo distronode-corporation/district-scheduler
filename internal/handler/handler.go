@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -491,10 +492,16 @@ func (h *Handler) PlatformManagedFields(fields ...string) func(http.HandlerFunc)
 				next(w, r)
 				return
 			}
-			for _, f := range fields {
-				if _, present := named[f]; present {
-					h.writeError(w, http.StatusForbidden, platformManagedMessage)
-					return
+			// ⛔ Case-insensitive, because the handler's decoder is: encoding/json binds
+			// `"Endpoint"` or `"API_KEY"` to the `json:"endpoint"`/`json:"api_key"` fields,
+			// so an exact-key lookup here let a tenant name a managed field in another case
+			// and have the handler write it anyway.
+			for k := range named {
+				for _, f := range fields {
+					if strings.EqualFold(k, f) {
+						h.writeError(w, http.StatusForbidden, platformManagedMessage)
+						return
+					}
 				}
 			}
 			next(w, r)
