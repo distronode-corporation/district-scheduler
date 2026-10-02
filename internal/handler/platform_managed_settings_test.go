@@ -182,6 +182,10 @@ func TestPlatformManagedFields_llmCredentialFieldsAreRefusedInMultiTenantMode(t 
 		`{"api_key":"sk-attacker"}`,
 		`{"api_key":""}`,
 		`{"enabled":true,"endpoint":"https://llm.attacker.test/v1"}`,
+		// encoding/json matches struct tags case-insensitively, so the guard must too.
+		`{"Endpoint":"https://llm.attacker.test/v1","enabled":true}`,
+		`{"MODEL":"someone-elses-model"}`,
+		`{"Api_Key":"sk-attacker"}`,
 	} {
 		t.Run(body, func(t *testing.T) {
 			h, key, _ := setupWorkspace(t)
@@ -366,6 +370,7 @@ func TestPlatformManagedFields_notetakerKeyIsRefusedInMultiTenantMode(t *testing
 		`{"stt_api_key":"sk-attacker"}`,
 		`{"stt_api_key":""}`,
 		`{"enabled":true,"stt_api_key":"sk-attacker"}`,
+		`{"STT_API_KEY":"sk-attacker"}`,
 	} {
 		t.Run(body, func(t *testing.T) {
 			h, key, _ := setupWorkspace(t)
