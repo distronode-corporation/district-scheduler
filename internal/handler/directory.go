@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/calnode/calnode/internal/db"
 	"github.com/calnode/calnode/internal/i18n"
 )
 
@@ -120,8 +121,8 @@ func (h *Handler) PersonPage(w http.ResponseWriter, r *http.Request) {
 	}
 	var userID, name, avatarURL string
 	err := h.db.QueryRowContext(r.Context(), `
-		SELECT id, name, COALESCE(avatar_url,'') FROM users
-		WHERE handle = ? AND archived_at IS NULL`, handle).
+		SELECT u.id, u.name, `+db.AvatarURLSQL+` FROM users u
+		WHERE u.handle = ? AND u.archived_at IS NULL`, handle).
 		Scan(&userID, &name, &avatarURL)
 	if errors.Is(err, sql.ErrNoRows) {
 		http.Error(w, "Page not found", http.StatusNotFound)
