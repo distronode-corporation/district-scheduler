@@ -126,6 +126,12 @@ func (h *Handler) MCPServer() *mcp.Server {
 		Description: "Cancel a booking by id, with an optional reason. Removes the calendar event(s) and notifies attendee and hosts.",
 	}, h.mcpCancelBooking)
 
+	// Both read what only a recorded meeting produces, so MEETING_RECORDING=off leaves
+	// them out rather than offering two tools that can never return anything.
+	if h.meetingRecordingOff {
+		return s
+	}
+
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_meeting_notes",
 		Description: "Get the AI-generated meeting notes (Markdown) for a booking's built-in video call, produced by the notetaker after a recorded meeting. exists=false if the meeting wasn't recorded or notes aren't ready. NOTE: contains the meeting's spoken content.",

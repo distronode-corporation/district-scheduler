@@ -1,7 +1,7 @@
 # District Scheduler
 
 **A fork of [Calnode](https://github.com/Calnode/calnode)**, the Apache-2.0 scheduling engine,
-run by Distronode Corporation as the booking, meetings and notetaker engine behind
+run by Distronode Corporation as the booking and meetings engine behind
 [District AI](https://distronode.com/district-ai).
 
 A lean, self-hostable scheduling engine that lives in your AI stack: a Calendly-style
@@ -23,6 +23,9 @@ What this fork adds:
   This repository also keeps upstream's `Dockerfile` (the single-binary SQLite image), with
   base images pinned by digest and the Litestream download checked against a recorded
   checksum.
+- **`MEETING_RECORDING`**: a switch that removes meeting recording, the notetaker and the
+  stored notes and transcripts. Unset it is on, as upstream, except under `MULTI_TENANT`,
+  where it is off: District AI records no meetings. See [DEPLOY.md](DEPLOY.md).
 - **District AI branding**, unconditional: the transactional email letterhead and the
   default `EMAIL_FROM_NAME` ("District AI Scheduling"), the District AI theme on the hosted
   booking, manage and index pages, the "Powered by District AI" backlink in the embed
@@ -288,7 +291,7 @@ domains, Resend email, Google & Microsoft OAuth, Litestream backups, troubleshoo
 - **Paid bookings** — Stripe Checkout (pay-then-book: the slot is held, confirmed on the payment webhook, auto-refunded on cancel)
 - **Zoom** — per-host OAuth; a Zoom-located booking mints a meeting under the assigned host's account
 - **Built-in video meetings (LiveKit)** — in-browser rooms as a booking location (no app or account for guests); host controls (end-for-all, hand-off **and reclaim** host, attendee screen-share toggle), **meeting recording** straight to the bucket configured by the `LITESTREAM_*` variables
-  (the SQLite shape's backup bucket; the fork image uses them for recordings only) with in-app downloads, **recording consent** (notice + consent-or-leave), and an **AI notetaker** (Deepgram transcript → LLM notes). Headless-consumable: MCP `get_meeting_notes`/`get_transcript` + `recording.completed`/`transcript.ready`/`notes.ready` webhooks. BYO LiveKit endpoint (Cloud or self-hosted); configured in Settings → Video — see [docs/VIDEO.md](docs/VIDEO.md)
+  (the SQLite shape's backup bucket; the fork image uses them for recordings only) with in-app downloads, **recording consent** (notice + consent-or-leave), and an **AI notetaker** (Deepgram transcript → LLM notes). Headless-consumable: MCP `get_meeting_notes`/`get_transcript` + `recording.completed`/`transcript.ready`/`notes.ready` webhooks. Switchable as a whole with `MEETING_RECORDING` (off by default under `MULTI_TENANT`). BYO LiveKit endpoint (Cloud or self-hosted); configured in Settings → Video — see [docs/VIDEO.md](docs/VIDEO.md)
 - **9 languages** on every booker-facing surface - booking page, manage/reschedule page,
   embed widget, all four emails, and the calendar invite: **English · Spanish · French ·
   Canadian French · German · Italian · Portuguese · Dutch · Swedish**. Picked from `Accept-Language` with a

@@ -1317,6 +1317,14 @@ API + Egress, `DeleteRoom`/`UpdateParticipant`/`ListParticipants`/`UpdateRoomMet
 `templates/livekit-room.html` + `assets/livekit-room.js` (both `go:embed`-ed in the handler pkg —
 a Go rebuild is needed after editing them, independent of the SPA build).
 
+**`MEETING_RECORDING` (fork).** Everything below about recording, consent, the egress webhook
+and the notetaker exists only while it is on: the default for a single-tenant instance, NOT
+under `MULTI_TENANT`. Off, `server.New` leaves those routes unregistered and the paths that
+stay reachable (the room's `recording_available`, the webhook sink, the notetaker jobs, the MCP
+notes tools, the platform workspace delete) check `h.meetingRecordingOff`; the list is in
+`internal/handler/meeting_recording.go`. The room itself, host authority and screen share are
+unaffected.
+
 **Three token kinds (do not conflate):**
 1. **Room token** — opaque HMAC blob (`{r:room, e:exp, role}`) embedded in the booking's join URL.
    No LiveKit grant, so the API secret never ships to the browser and the link can't be replayed

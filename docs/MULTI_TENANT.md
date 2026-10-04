@@ -48,6 +48,7 @@ magic link), and every route says which of the two it uses.
 | `PUBLIC_BASE_URL` | **ignored**; each workspace's `public_host` replaces it |
 | `PLATFORM_RETURN_ORIGINS` | comma-separated origins the calendar OAuth round trip may return the browser to. Unset ⇒ off, and a `return_to` is **refused**, not ignored |
 | `ADMIN_SPA` | `on` (default) or `off`. `off` stops serving the embedded admin console, so the platform's own dashboard is the only admin UI. Multi-tenant only |
+| `MEETING_RECORDING` | `off` (the multi-tenant default) or `on`. Off, there is no meeting recording, notetaker, or stored notes and transcripts on any workspace: the routes 404, the MCP server does not offer `get_meeting_notes`/`get_transcript`, and a workspace delete returns no `recording_object_keys`. A platform that hosts other organisations' meetings decides about recording them in its own terms, not through a per-workspace toggle. See DEPLOY.md |
 | `METRICS_ALLOW_UNAUTHENTICATED_FROM` | comma-separated CIDRs whose requests may scrape `GET /metrics` with no bearer. Empty ⇒ off, and the bearer is the only way in |
 
 ### `METRICS_ALLOW_UNAUTHENTICATED_FROM`

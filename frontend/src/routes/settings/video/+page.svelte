@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
-	import { currentUser } from '$lib/stores';
+	import { currentUser, authStatus, meetingRecordingOn } from '$lib/stores';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
@@ -33,6 +33,9 @@
 	let deepgramKey = $state('');
 
 	let storage = $state<StorageStatus | null>(null);
+	// MEETING_RECORDING=off: the storage, notetaker and recording-webhook sections have no
+	// server behind them (their routes 404), so they are neither fetched nor shown.
+	const recordingOn = $derived(meetingRecordingOn($authStatus));
 	// Only worth surfacing once LiveKit itself works — there's nothing to record yet otherwise.
 	const recordingNotReady = $derived(
 		settings?.configured && storage !== null && (!storage.recordings_storage_ready || !storage.recordings_enabled)
@@ -43,6 +46,7 @@
 		settings = await api.get<LiveKitSettings>('/v1/settings/livekit');
 		url = settings.url;
 		apiKey = settings.api_key;
+		if (!meetingRecordingOn($authStatus)) return;
 		notetaker = await api.get<NotetakerSettings>('/v1/settings/notetaker');
 		notetakerEnabled = notetaker.enabled;
 		storage = await api.get<StorageStatus>('/v1/settings/storage');
@@ -167,7 +171,7 @@
 			</div>
 		</div>
 
-		{#if recordingNotReady}
+		{#if recordingOn && recordingNotReady}
 			<div class="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
 				{#if !storage?.recordings_storage_ready}
 					<p>Meeting recordings need object storage set up first.</p>
@@ -180,7 +184,7 @@
 			</div>
 		{/if}
 
-		{#if settings?.configured}
+		{#if settings?.configured && recordingOn}
 			<div class="rounded-lg border bg-card p-6">
 				<h2 class="text-sm font-semibold">Webhook (recommended)</h2>
 				<p class="mt-0.5 text-xs text-muted-foreground">

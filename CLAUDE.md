@@ -106,6 +106,12 @@ client SDK**, not Svelte.
   host has the badge but no real power — that gap is exactly what `authorizeHost` closes.
 - **Single host:** any host join demotes prior hosts (`demoteOtherHosts` → metadata `"attendee"`);
   the client downgrades only on explicit `"attendee"`, never on a transient/empty metadata event.
+- **`MEETING_RECORDING` gates all of the recording side** (`config.MeetingRecordingEnabled`:
+  unset = on single-tenant, OFF under `MULTI_TENANT`, which is what District AI runs). Off,
+  the recording/storage/notetaker/notes/transcript routes are left unregistered in
+  `server.go`, and `handler/meeting_recording.go` lists the paths that stay reachable and
+  check `h.meetingRecordingOff` (room payload, LiveKit webhook, notetaker jobs, MCP tools,
+  workspace delete, auth status). A new recording-only surface needs the same gate.
 - **Recording (Egress):** room-composite → the **Litestream backups bucket** (`LITESTREAM_*` env),
   `recordings/` prefix. **Finalize on stop/end (`finalizeActiveRecording`), do NOT depend on the
   webhook** — `object_key` is set at start so downloads work without it; a startup sweep closes

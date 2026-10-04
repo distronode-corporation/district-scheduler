@@ -84,7 +84,7 @@ func (h *Handler) enqueueJob(ctx context.Context, typ string, payload any) error
 // maybeStartNotetaker is called when a recording finalizes (egress_ended): if the notetaker is on
 // and both STT + an LLM are configured, enqueue transcription for that recording.
 func (h *Handler) maybeStartNotetaker(ctx context.Context, recordingID string) {
-	if recordingID == "" {
+	if recordingID == "" || h.meetingRecordingOff {
 		return
 	}
 	if !h.notetakerEnabled(ctx) {
@@ -114,6 +114,10 @@ func (h *Handler) JobNotetakerTranscribe(ctx context.Context, workspaceID, paylo
 	// write below has to be this job's workspace. In single-tenant mode
 	// workspaceForJob is the identity function.
 	h = h.workspaceForJob(workspaceID)
+	if h.meetingRecordingOff { // a job queued before MEETING_RECORDING=off completes as a no-op
+		h.logger.InfoContext(ctx, "notetaker: skip — meeting recording is off", "workspace", workspaceID)
+		return nil
+	}
 
 	var p struct {
 		RecordingID string `json:"recording_id"`
@@ -174,6 +178,10 @@ func (h *Handler) JobNotetakerSummarize(ctx context.Context, workspaceID, payloa
 	// write below has to be this job's workspace. In single-tenant mode
 	// workspaceForJob is the identity function.
 	h = h.workspaceForJob(workspaceID)
+	if h.meetingRecordingOff { // a job queued before MEETING_RECORDING=off completes as a no-op
+		h.logger.InfoContext(ctx, "notetaker: skip — meeting recording is off", "workspace", workspaceID)
+		return nil
+	}
 
 	var p struct {
 		BookingID string `json:"booking_id"`

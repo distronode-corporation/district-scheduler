@@ -53,6 +53,23 @@ type Config struct {
 	// nothing anywhere saying why.
 	adminSPARaw string
 
+	// MeetingRecording is MEETING_RECORDING as the environment gave it: "on", "off" or
+	// "" for the per-mode default. Read through MeetingRecordingEnabled, never on its
+	// own: that method is where the default lives.
+	//
+	// The switch covers everything that exists only because a meeting was recorded:
+	// the Record button and its egress, recording consent, the recordings list and
+	// downloads, the storage toggle, the notetaker (speech-to-text and LLM notes), the
+	// stored notes and transcripts behind the REST routes and the two MCP tools, and
+	// the three media webhook events. Off, none of it is reachable; the tables stay,
+	// so export and erasure still see any rows written before the switch.
+	//
+	// Default on for a single-tenant instance, which keeps upstream's behaviour exactly,
+	// and OFF under MultiTenant: a platform that hosts other organisations' meetings
+	// decides whether to record them in its own terms and its own consent flow, not by
+	// a per-tenant toggle a workspace admin can flip. Either default can be overridden.
+	MeetingRecording string
+
 	// DatabaseAdminURL is the PLATFORM role's DSN: the owner of the schema, with
 	// BYPASSRLS, which runs migrations, the worker's cross-tenant claim loop, the
 	// reconciler's workspace enumeration and the platform API. DatabaseURL is then
@@ -281,6 +298,7 @@ func Load() *Config {
 	// refused by Validate rather than silently taken as "on" here.
 	cfg.adminSPARaw = strings.TrimSpace(os.Getenv("ADMIN_SPA"))
 	cfg.AdminSPA = !strings.EqualFold(cfg.adminSPARaw, "off")
+	cfg.MeetingRecording = strings.TrimSpace(os.Getenv("MEETING_RECORDING"))
 	cfg.DatabaseAdminURL = os.Getenv("DATABASE_ADMIN_URL")
 	cfg.PlatformToken = os.Getenv("CALNODE_PLATFORM_TOKEN")
 
@@ -325,6 +343,15 @@ func (c *Config) Validate() error {
 	case c.adminSPARaw == "", strings.EqualFold(c.adminSPARaw, "on"), strings.EqualFold(c.adminSPARaw, "off"):
 	default:
 		return fmt.Errorf("ADMIN_SPA: %q is not a valid value; use on or off", c.adminSPARaw)
+	}
+
+	// Same family again, checked in both modes for the same reason. The fallback is the
+	// per-mode default, so an unreadable value could turn recording ON for a multi-tenant
+	// instance whose operator wrote the variable to keep it off.
+	switch {
+	case c.MeetingRecording == "", strings.EqualFold(c.MeetingRecording, "on"), strings.EqualFold(c.MeetingRecording, "off"):
+	default:
+		return fmt.Errorf("MEETING_RECORDING: %q is not a valid value; use on or off", c.MeetingRecording)
 	}
 
 	if !c.MultiTenant {
@@ -381,6 +408,24 @@ func (c *Config) Validate() error {
 // AdminSPA itself keeps the value the environment asked for, so boot can say that a
 // single-tenant ADMIN_SPA=off was ignored rather than pretending it was never set.
 func (c *Config) AdminSPAEnabled() bool { return !c.MultiTenant || c.AdminSPA }
+
+// MeetingRecordingEnabled reports whether meeting recording, and everything built on a
+// recording (the notetaker, stored notes and transcripts), is available on this instance.
+//
+// MEETING_RECORDING=on or off decides when set. Unset, it follows the mode: on for a
+// single-tenant instance, so the engine behaves exactly as upstream's does, and off under
+// MultiTenant. Every caller asks this method, so the route registration, the handler and
+// the boot log cannot disagree about the default.
+func (c *Config) MeetingRecordingEnabled() bool {
+	switch {
+	case strings.EqualFold(c.MeetingRecording, "on"):
+		return true
+	case strings.EqualFold(c.MeetingRecording, "off"):
+		return false
+	default:
+		return !c.MultiTenant
+	}
+}
 
 // isPostgresURL mirrors the classification internal/db does on the same string.
 // Duplicated rather than imported because db imports config, and one three-line
