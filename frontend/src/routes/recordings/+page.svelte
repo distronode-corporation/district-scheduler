@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, type LLMSettings } from '$lib/api';
-	import { currentUser } from '$lib/stores';
+	import { currentUser, authStatus, meetingRecordingOn } from '$lib/stores';
 	import { Button, buttonVariants } from '$lib/components/ui/button';
 	import { ConfirmDialog } from '$lib/components/ui/confirm-dialog';
 	import { Input } from '$lib/components/ui/input';
@@ -49,6 +49,11 @@
 	);
 
 	onMount(async () => {
+		// MEETING_RECORDING=off: the routes below do not exist; the notice is rendered instead.
+		if (!meetingRecordingOn($authStatus)) {
+			loading = false;
+			return;
+		}
 		try {
 			const res = await api.get<{ recordings: Recording[] }>('/v1/recordings');
 			recordings = res.recordings ?? [];
@@ -260,6 +265,8 @@
 
 {#if !$currentUser?.is_admin}
 	<p class="text-sm text-muted-foreground">Admin access required.</p>
+{:else if !meetingRecordingOn($authStatus)}
+	<p class="text-sm text-muted-foreground">Meeting recording is turned off on this server.</p>
 {:else if loading}
 	<p class="py-8 text-sm text-muted-foreground">Loading…</p>
 {:else if recordings.length === 0}

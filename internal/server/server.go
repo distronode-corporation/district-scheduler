@@ -75,6 +75,13 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *db.DB, logger *sl
 		h.SetMetricsAnonymousNetworks(nets)
 	}
 	h.SetSTTBaseURL(cfg.STTBaseURL)
+	// MEETING_RECORDING: off by default under MULTI_TENANT, on otherwise. Logged when
+	// off, because "where did the Recordings page go" should be answerable from the boot
+	// log. The routes it removes are skipped in New; the rest is in the handler.
+	h.SetMeetingRecording(cfg.MeetingRecordingEnabled())
+	if !cfg.MeetingRecordingEnabled() {
+		logger.Info("meeting recording is off: no recording, notetaker, stored notes or transcripts (MEETING_RECORDING)")
+	}
 	h.SetSMTPConnectAddress(cfg.SMTPConnectHost, cfg.SMTPConnectPort)
 	h.SetDemoMode(cfg.DemoMode)
 	h.SetDemoResetInterval(cfg.DemoResetInterval)
@@ -536,18 +543,23 @@ func New(ctx context.Context, cfg *config.Config, db *db.DB, logger *slog.Logger
 	mux.HandleFunc("PATCH /v1/settings/zoom", settingsRL(h.PlatformManaged(h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).PatchZoomSettings)))))
 	mux.HandleFunc("GET /v1/settings/livekit", h.PlatformManaged(h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).GetLiveKitSettings))))
 	mux.HandleFunc("PATCH /v1/settings/livekit", settingsRL(h.PlatformManaged(h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).PatchLiveKitSettings)))))
-	mux.HandleFunc("GET /v1/settings/storage", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).GetStorageSettings)))
-	mux.HandleFunc("PATCH /v1/settings/storage", settingsRL(h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).PatchStorageSettings))))
-	mux.HandleFunc("GET /v1/settings/notetaker", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).GetNotetakerSettings)))
-	// ⛔ `stt_api_key` is the ONE credential field this PATCH accepts, and it is stored on
-	// the INSTANCE's server_settings row — so a tenant-supplied speech-to-text credential
-	// would be what every other tenancy on this deployment transcribes through. The
-	// `enabled` toggle beside it is genuinely the workspace's, which is why the guard is
-	// by field: refusing the whole route would take the notetaker switch off the console.
-	mux.HandleFunc("PATCH /v1/settings/notetaker", settingsRL(h.PlatformManagedFields("stt_api_key")(h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).PatchNotetakerSettings)))))
-	mux.HandleFunc("GET /v1/bookings/{id}/notes", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).GetBookingNotes)))
-	mux.HandleFunc("POST /v1/bookings/{id}/notes/regenerate", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).RegenerateBookingNotes)))
-	mux.HandleFunc("GET /v1/bookings/{id}/transcript", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).GetBookingTranscript)))
+	// MEETING_RECORDING=off leaves the recording storage toggle, the notetaker and the
+	// stored notes and transcripts unregistered: a 404, as on an instance that never had
+	// them. See handler/meeting_recording.go for the parts that stay reachable.
+	if cfg.MeetingRecordingEnabled() {
+		mux.HandleFunc("GET /v1/settings/storage", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).GetStorageSettings)))
+		mux.HandleFunc("PATCH /v1/settings/storage", settingsRL(h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).PatchStorageSettings))))
+		mux.HandleFunc("GET /v1/settings/notetaker", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).GetNotetakerSettings)))
+		// ⛔ `stt_api_key` is the ONE credential field this PATCH accepts, and it is stored on
+		// the INSTANCE's server_settings row — so a tenant-supplied speech-to-text credential
+		// would be what every other tenancy on this deployment transcribes through. The
+		// `enabled` toggle beside it is genuinely the workspace's, which is why the guard is
+		// by field: refusing the whole route would take the notetaker switch off the console.
+		mux.HandleFunc("PATCH /v1/settings/notetaker", settingsRL(h.PlatformManagedFields("stt_api_key")(h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).PatchNotetakerSettings)))))
+		mux.HandleFunc("GET /v1/bookings/{id}/notes", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).GetBookingNotes)))
+		mux.HandleFunc("POST /v1/bookings/{id}/notes/regenerate", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).RegenerateBookingNotes)))
+		mux.HandleFunc("GET /v1/bookings/{id}/transcript", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).GetBookingTranscript)))
+	}
 	mux.HandleFunc("GET /v1/settings/stripe", h.PlatformManaged(h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).GetStripeSettings))))
 	mux.HandleFunc("PATCH /v1/settings/stripe", settingsRL(h.PlatformManaged(h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).PatchStripeSettings)))))
 	mux.HandleFunc("GET /v1/settings/tracking", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).GetTrackingSettings)))
@@ -671,16 +683,23 @@ func New(ctx context.Context, cfg *config.Config, db *db.DB, logger *slog.Logger
 	mux.HandleFunc("POST /v1/livekit/room/end", bookingRL(h.Scoped(handler.HostWorkspace, (*H).EndRoom)))
 	mux.HandleFunc("POST /v1/livekit/room/reassign-host", bookingRL(h.Scoped(handler.HostWorkspace, (*H).ReassignHost)))
 	mux.HandleFunc("POST /v1/livekit/room/screenshare", bookingRL(h.Scoped(handler.HostWorkspace, (*H).ScreenShareToggle)))
-	mux.HandleFunc("POST /v1/livekit/record/start", bookingRL(h.Scoped(handler.HostWorkspace, (*H).RecordStart)))
-	mux.HandleFunc("POST /v1/livekit/record/stop", bookingRL(h.Scoped(handler.HostWorkspace, (*H).RecordStop)))
-	mux.HandleFunc("POST /v1/livekit/consent", bookingRL(h.Scoped(handler.HostWorkspace, (*H).RecordConsent)))
+	// MEETING_RECORDING=off: no Record, no consent notice, no recordings list. The webhook
+	// stays registered, because LiveKit posts every project event to it; with recording
+	// off it ACKs and acts on nothing.
+	if cfg.MeetingRecordingEnabled() {
+		mux.HandleFunc("POST /v1/livekit/record/start", bookingRL(h.Scoped(handler.HostWorkspace, (*H).RecordStart)))
+		mux.HandleFunc("POST /v1/livekit/record/stop", bookingRL(h.Scoped(handler.HostWorkspace, (*H).RecordStop)))
+		mux.HandleFunc("POST /v1/livekit/consent", bookingRL(h.Scoped(handler.HostWorkspace, (*H).RecordConsent)))
+	}
 	mux.HandleFunc("POST /v1/livekit/webhook", h.Platform((*H).LiveKitWebhook))
 	mux.HandleFunc("POST /v1/livekit/egress-webhook", h.Platform((*H).LiveKitWebhook)) // legacy alias — keep old LiveKit registrations working
-	mux.HandleFunc("GET /v1/recordings", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).ListRecordings)))
-	mux.HandleFunc("DELETE /v1/recordings", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).DeleteAllRecordings)))
-	mux.HandleFunc("GET /v1/recordings/{id}/consent", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).ListRecordingConsent)))
-	mux.HandleFunc("GET /v1/recordings/{id}/download", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).DownloadRecording)))
-	mux.HandleFunc("DELETE /v1/recordings/{id}", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).DeleteRecording)))
+	if cfg.MeetingRecordingEnabled() {
+		mux.HandleFunc("GET /v1/recordings", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).ListRecordings)))
+		mux.HandleFunc("DELETE /v1/recordings", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).DeleteAllRecordings)))
+		mux.HandleFunc("GET /v1/recordings/{id}/consent", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).ListRecordingConsent)))
+		mux.HandleFunc("GET /v1/recordings/{id}/download", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).DownloadRecording)))
+		mux.HandleFunc("DELETE /v1/recordings/{id}", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).DeleteRecording)))
+	}
 
 	// Manage booking (reschedule / cancel via token link)
 	mux.HandleFunc("GET /manage/{token}", manageRL(h.Scoped(handler.HostWorkspace, (*H).ManagePage)))

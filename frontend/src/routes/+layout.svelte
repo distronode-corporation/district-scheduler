@@ -4,7 +4,7 @@
 	import { base } from '$app/paths';
 	import '../app.css';
 	import { api, type User } from '$lib/api';
-	import { currentUser, authStatus, type AuthStatus } from '$lib/stores';
+	import { currentUser, authStatus, meetingRecordingOn, type AuthStatus } from '$lib/stores';
 	import { prefs, prefsFromUser } from '$lib/prefs';
 	import { Toaster } from '$lib/components/ui/sonner';
 	import { buttonVariants } from '$lib/components/ui/button';
@@ -136,7 +136,7 @@
 			(item) =>
 				(!item.adminOnly || $currentUser?.is_admin) &&
 				!($authStatus.demo_mode && item.label === 'Calendar') &&
-				(item.requiresFeature !== 'recordings' || recordingsConfigured)
+				(item.requiresFeature !== 'recordings' || (recordingsConfigured && meetingRecordingOn($authStatus)))
 		)
 	);
 

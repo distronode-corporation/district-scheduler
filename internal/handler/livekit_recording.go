@@ -64,6 +64,9 @@ func (h *Handler) recordingsEnabled(ctx context.Context) bool {
 // RecordingAvailable reports whether recording can be started (enabled + storage configured).
 // Surfaced to the room so the Record button only shows when it'll actually work.
 func (h *Handler) recordingAvailable(ctx context.Context) bool {
+	if h.meetingRecordingOff { // MEETING_RECORDING=off: see meeting_recording.go
+		return false
+	}
 	if !h.recordingsEnabled(ctx) {
 		return false
 	}
@@ -559,6 +562,14 @@ func (h *Handler) LiveKitWebhook(w http.ResponseWriter, r *http.Request) {
 		} `json:"egressInfo"`
 	}
 	_ = json.Unmarshal(body, &ev)
+
+	// MEETING_RECORDING=off: every event this sink acts on is a recording's, so there is
+	// nothing to do. Still a 200, because LiveKit sends every project event here and a
+	// 4xx would make it retry each one; and before the tenant lookup, so it reads nothing.
+	if h.meetingRecordingOff {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 
 	// ⛔ Resolve the tenant, then verify with ITS credentials, then act — and in
 	// single-tenant mode verify first, exactly as before. The order differs by mode because

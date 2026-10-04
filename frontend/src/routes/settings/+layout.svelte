@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { base } from '$app/paths';
-	import { currentUser } from '$lib/stores';
+	import { currentUser, authStatus, meetingRecordingOn } from '$lib/stores';
 	import type { Snippet } from 'svelte';
 
 	let { children }: { children: Snippet } = $props();
@@ -14,13 +14,20 @@
 		{ section: 'Workspace', href: `${base}/settings/google`, label: 'Google OAuth', adminOnly: true },
 		{ section: 'Workspace', href: `${base}/settings/zoom`, label: 'Zoom', adminOnly: true },
 		{ section: 'Workspace', href: `${base}/settings/video`, label: 'Video', adminOnly: true },
-		{ section: 'Workspace', href: `${base}/settings/storage`, label: 'Storage', adminOnly: true },
+		{ section: 'Workspace', href: `${base}/settings/storage`, label: 'Storage', adminOnly: true, recording: true },
 		{ section: 'Workspace', href: `${base}/settings/payments`, label: 'Payments', adminOnly: true },
 		{ section: 'Workspace', href: `${base}/settings/ai`, label: 'AI', adminOnly: true },
 		{ section: 'Workspace', href: `${base}/settings/tracking`, label: 'Tracking', adminOnly: true },
 	];
 
-	const visibleNavItems = $derived(navItems.filter((item) => !item.adminOnly || $currentUser?.is_admin));
+	// Storage holds only the recordings toggle, so it goes with MEETING_RECORDING=off.
+	const visibleNavItems = $derived(
+		navItems.filter(
+			(item) =>
+				(!item.adminOnly || $currentUser?.is_admin) &&
+				(!('recording' in item) || meetingRecordingOn($authStatus))
+		)
+	);
 </script>
 
 <svelte:head><title>Settings — Calnode</title></svelte:head>

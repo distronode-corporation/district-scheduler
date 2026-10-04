@@ -153,4 +153,10 @@ type shared struct {
 	// other way round, forgetting one call would 404 SSO hand-offs on a perfectly
 	// ordinary instance. See SetAdminSPA.
 	adminSPAOff bool
+
+	// meetingRecordingOff records that meeting recording, the notetaker and the stored
+	// notes and transcripts are switched off on this instance (MEETING_RECORDING).
+	// NEGATED for the same reason as adminSPAOff: the zero value is upstream's
+	// behaviour, so a handler built without SetMeetingRecording (every test) keeps it.
+	meetingRecordingOff bool
 }

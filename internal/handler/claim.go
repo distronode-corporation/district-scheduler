@@ -45,6 +45,10 @@ func (h *Handler) AuthStatus(w http.ResponseWriter, r *http.Request) {
 		"providers":       providers,
 		"smtp_configured": h.isEmailEnabled(),
 		"demo_mode":       h.demoMode,
+		// Whether meeting recording, the notetaker and stored notes and transcripts exist
+		// on this instance (MEETING_RECORDING). The admin console hides those surfaces on
+		// false; an absent key, from an older server, means true.
+		"meeting_recording": !h.meetingRecordingOff,
 	}
 	if h.demoMode {
 		resp["next_reset_at"] = h.getDemoNextResetAt().UTC().Format(time.RFC3339)

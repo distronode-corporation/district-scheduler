@@ -47,6 +47,7 @@ Entries below are a mixture, and which is which decides where a patch should go:
   fork's autofill-proof markup; and #48 and #50 were the same fix.
 - **Fork-only, and staying that way.** PostgreSQL support, `MULTI_TENANT` and
   everything under it (the platform API, the signed session hand-off, `ADMIN_SPA`,
+  `MEETING_RECORDING`,
   `PLATFORM_RETURN_ORIGINS`, the neutral tenant root, the booking link that cannot be
   renamed), and the
   `Dockerfile.district` image. PostgreSQL ([#29]) and `MULTI_TENANT` ([#31]) were
@@ -208,6 +209,21 @@ Upstream's migrations 00062-00067 are this fork's 00069-00074, each in both dial
   workspace can only ever act as its own accounts.
 
 ### Added
+- **`MEETING_RECORDING` (fork).** `on` or `off`; unset it is on for a single-tenant
+  instance, which is upstream's behaviour unchanged, and off under `MULTI_TENANT`. Off
+  removes meeting recording and everything that exists only because of a recording: the
+  Record button and egress, the consent notice, the Recordings page and downloads,
+  Settings → Storage, the notetaker, the stored notes and transcripts behind
+  `GET /v1/bookings/{id}/notes` and `/transcript` and the `get_meeting_notes` and
+  `get_transcript` MCP tools, and the three media webhook events. Those routes are left
+  unregistered (404). The LiveKit webhook still answers 200 and acts on nothing, a queued
+  notetaker job completes as a no-op, webhook subscriptions naming the media events are
+  still accepted, a platform workspace delete no longer returns `recording_object_keys`,
+  and `GET /v1/auth/status` carries `meeting_recording` so the admin console hides the
+  surfaces. No migration: the `recordings`, `meeting_consents`, `transcripts` and `notes`
+  tables stay, so export and erasure still cover rows written before the switch. A switch
+  rather than a deletion because the code is upstream's and the fork is kept close enough
+  to sync; District AI runs multi-tenant and records no meetings.
 - **Canadian French (`fr-CA`) on the booker-facing surfaces.** A visitor whose browser asks
   for `fr-CA` now gets Canadian French rather than the France copy; `fr` and `fr-FR` are
   unaffected. It is the first regional locale, and a separate file rather than a fallback

@@ -8,21 +8,18 @@
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Tooltip from '$lib/components/ui/tooltip';
+	import { authStatus, meetingRecordingOn } from '$lib/stores';
 
 	let items: Webhook[] = $state([]);
 	let loading = $state(true);
 	let error = $state('');
 	let showCreate = $state(false);
 
-	const allEvents = [
-		'booking.created',
-		'booking.cancelled',
-		'booking.rescheduled',
-		'booking.reminder',
-		'recording.completed',
-		'transcript.ready',
-		'notes.ready'
-	];
+	const bookingEvents = ['booking.created', 'booking.cancelled', 'booking.rescheduled', 'booking.reminder'];
+	// Fired only by a recorded meeting, so not offered with MEETING_RECORDING=off. The API
+	// still accepts them, so an existing subscription that lists them keeps saving.
+	const recordingEvents = ['recording.completed', 'transcript.ready', 'notes.ready'];
+	const allEvents = $derived(meetingRecordingOn($authStatus) ? [...bookingEvents, ...recordingEvents] : bookingEvents);
 
 	// Payload field catalog (keys must match the backend's webhook field keys).
 	// `pii` flags personal data so the operator chooses consciously what leaves the system.

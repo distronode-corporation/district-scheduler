@@ -630,31 +630,16 @@ func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("id")
 
-	keys := []string{}
-	rows, err := h.db.QueryContext(r.Context(),
-		`SELECT object_key FROM recordings WHERE workspace_id = ? AND object_key <> '' ORDER BY object_key`, id)
-	if err != nil {
-		h.logger.ErrorContext(r.Context(), "platform: list recording keys", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	for rows.Next() {
-		var key string
-		if err := rows.Scan(&key); err != nil {
-			rows.Close() // #nosec G104 -- releasing the cursor on the error path; the scan error is logged and answered immediately below
-			h.logger.ErrorContext(r.Context(), "platform: scan recording key", "error", err)
-			h.writeError(w, http.StatusInternalServerError, "internal error")
+	// MEETING_RECORDING=off: no recording can exist to leave an object behind, so the
+	// response carries no recording_object_keys at all. The caller reads an absent list as
+	// an empty one.
+	var keys []string
+	if !h.meetingRecordingOff {
+		var ok bool
+		if keys, ok = h.workspaceRecordingKeys(w, r, id); !ok {
 			return
 		}
-		keys = append(keys, key)
 	}
-	if err := rows.Err(); err != nil {
-		rows.Close() // #nosec G104 -- releasing the cursor on the error path; the iteration error is logged and answered immediately below
-		h.logger.ErrorContext(r.Context(), "platform: iterate recording keys", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	rows.Close() // #nosec G104 -- rows already fully consumed above; nothing actionable on close error
 
 	res, err := h.db.ExecContext(r.Context(), `DELETE FROM workspaces WHERE id = ?`, id)
 	if err != nil {
@@ -669,7 +654,43 @@ func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.InfoContext(r.Context(), "platform: workspace deleted",
 		"workspace_id", id, "recording_objects", len(keys))
-	h.writeJSON(w, http.StatusOK, map[string]any{"recording_object_keys": keys})
+	resp := map[string]any{}
+	if !h.meetingRecordingOff {
+		resp["recording_object_keys"] = keys
+	}
+	h.writeJSON(w, http.StatusOK, resp)
+}
+
+// workspaceRecordingKeys lists the object keys of a workspace's recordings, read before
+// the delete because the cascade removes the rows. ok=false means the error has already
+// been written to w.
+func (h *Handler) workspaceRecordingKeys(w http.ResponseWriter, r *http.Request, id string) ([]string, bool) {
+	keys := []string{}
+	rows, err := h.db.QueryContext(r.Context(),
+		`SELECT object_key FROM recordings WHERE workspace_id = ? AND object_key <> '' ORDER BY object_key`, id)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "platform: list recording keys", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return nil, false
+	}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			rows.Close() // #nosec G104 -- releasing the cursor on the error path; the scan error is logged and answered immediately below
+			h.logger.ErrorContext(r.Context(), "platform: scan recording key", "error", err)
+			h.writeError(w, http.StatusInternalServerError, "internal error")
+			return nil, false
+		}
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close() // #nosec G104 -- releasing the cursor on the error path; the iteration error is logged and answered immediately below
+		h.logger.ErrorContext(r.Context(), "platform: iterate recording keys", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return nil, false
+	}
+	rows.Close() // #nosec G104 -- rows already fully consumed above; nothing actionable on close error
+	return keys, true
 }
 
 // readPlatformWorkspace reads one workspace row for the API's responses.

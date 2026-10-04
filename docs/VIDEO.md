@@ -9,6 +9,11 @@ at a LiveKit project (Cloud or self-hosted), and it handles token minting, the r
 UI, recording, consent, and the AI notetaker on top. This doc covers the config on
 this side — LiveKit's own docs cover standing up LiveKit itself.
 
+**Recording, consent and the notetaker exist only while `MEETING_RECORDING` is on**, which
+is the default on a single-tenant instance and NOT under `MULTI_TENANT`. With it off the
+room is video only: no Record button, no consent notice, no Recordings page, no notes or
+transcripts (see `DEPLOY.md`). Sections 2 to 4 below assume it is on.
+
 For architecture-level detail (token model, host authority, egress lifecycle), see
 `docs/ARCHITECTURE.md` §22.
 

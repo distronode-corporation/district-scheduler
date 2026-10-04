@@ -51,6 +51,13 @@ type tenancyFixture struct {
 
 func newTenancyFixture(t *testing.T) *tenancyFixture {
 	t.Helper()
+	return newTenancyFixtureWith(t, nil)
+}
+
+// newTenancyFixtureWith is newTenancyFixture with a chance to change the configuration
+// before the server is built, for a case about a switch.
+func newTenancyFixtureWith(t *testing.T, configure func(*config.Config)) *tenancyFixture {
+	t.Helper()
 
 	app, platform := dbtest.RequireTenantPair(t)
 
@@ -64,6 +71,14 @@ func newTenancyFixture(t *testing.T) *tenancyFixture {
 		// The fixture models an ordinary deployment, so it says so.
 		AdminSPA:            true,
 		EmbedAllowedOrigins: nil,
+		// ⚠️ Multi-tenant defaults MEETING_RECORDING to off, which would take the recording,
+		// notes and transcript routes and the two notes MCP tools out of every proof below.
+		// They are still code an operator can switch on, so the proofs keep covering them;
+		// meeting_recording_tenancy_test.go covers the default.
+		MeetingRecording: "on",
+	}
+	if configure != nil {
+		configure(cfg)
 	}
 	// ⚠️ The worker's context has to be cancelled BEFORE drain: drain blocks until
 	// the worker finishes its current poll cycle, and the worker only stops when
