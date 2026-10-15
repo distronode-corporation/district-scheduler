@@ -1,14 +1,17 @@
 # District Scheduler
 
 **A fork of [Calnode](https://github.com/Calnode/calnode)**, the Apache-2.0 scheduling engine,
-run by Distronode Corporation as the booking and meetings engine behind
-[District AI](https://distronode.com/district-ai).
+run by Distronode Corporation as the scheduling engine behind every
+[District AI](https://distronode.com/district-ai) plan's booking page.
 
 A lean, self-hostable scheduling engine that lives in your AI stack: a Calendly-style
-booking app, with **first-party video meetings, recording, and AI notetaking** built in,
-shipped as one Go binary that serves its own public booking pages and its own admin
-console. It is API-first, webhook-native, and built for a world where agents do the
-booking. Nothing is paywalled.
+booking app with first-party video meetings built in, shipped as one Go binary that serves
+its own public booking pages and its own admin console. It is API-first, webhook-native,
+and built for a world where agents do the booking. Nothing is paywalled.
+
+Meeting recording and the AI notetaker are upstream Calnode features. This fork switches
+them off under `MULTI_TENANT` (the `MEETING_RECORDING` switch below), which is how District
+AI runs it: District AI records no meetings.
 
 What this fork adds:
 
@@ -37,7 +40,7 @@ fork's to carry. See [Relationship to upstream Calnode](#relationship-to-upstrea
 Branches: `district` is the default branch and what District AI runs. The Go module path is
 kept as upstream's so the fork syncs cleanly. See [NOTICE](NOTICE) for attribution.
 
-`Apache-2.0` · `Go 1.26+ (built with 1.27.1)` · `PostgreSQL 17 / SQLite`
+`Apache-2.0` · `Go 1.26+ (built with 1.27.2)` · `PostgreSQL 17 / SQLite`
 
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/distronode-corporation/district-scheduler/badge)](https://scorecard.dev/viewer/?uri=github.com/distronode-corporation/district-scheduler) · [Audit it yourself](AUDIT.md)
 
@@ -112,7 +115,8 @@ or the full **[DEPLOY.md](DEPLOY.md)**.
   orchestrate at all; the fork's multi-tenant image needs PostgreSQL and nothing else.
   Built-in video, if you turn it on, is the one add-on: it needs a LiveKit server.
 - **Meetings built in.** Optional first-party video rooms (LiveKit) as a booking
-  location: guests join in-browser, no app or account. Recordings go to the bucket
+  location: guests join in-browser, no app or account. Where recording is on (upstream's
+  default; off under `MULTI_TENANT`), recordings go to the bucket
   configured by the `LITESTREAM_*` variables (the SQLite shape's backup bucket; the fork
   image, which runs no Litestream, reads the same variables for recordings only); an AI
   notetaker turns each call into a transcript + notes, exposed as MCP tools and webhooks.
@@ -317,7 +321,7 @@ domains, Resend email, Google & Microsoft OAuth, Litestream backups, troubleshoo
 
 ## Stack
 
-- **Backend:** Go (`go 1.26` minimum, built and tested with 1.27.1) · PostgreSQL 17 via `pgx` in the fork image (row-level security, multi-tenant), or pure-Go SQLite (`modernc.org/sqlite`, CGO-free, the upstream single-binary shape) · `goose` migrations
+- **Backend:** Go (`go 1.26` minimum, built and tested with 1.27.2) · PostgreSQL 17 via `pgx` in the fork image (row-level security, multi-tenant), or pure-Go SQLite (`modernc.org/sqlite`, CGO-free, the upstream single-binary shape) · `goose` migrations
 - **Admin UI:** SvelteKit 2 / Svelte 5 · Vite 8 · Tailwind 4 · shadcn-svelte (embedded at compile time via `go:embed`)
 - **Public pages:** server-rendered Go `html/template` + vanilla JS (no framework runtime)
 - **Durability:** PostgreSQL in the fork image (back it up the way you back up PostgreSQL); SQLite WAL + optional Litestream replication (S3/R2) in the upstream single-binary shape
