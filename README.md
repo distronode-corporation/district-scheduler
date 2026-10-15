@@ -40,7 +40,7 @@ fork's to carry. See [Relationship to upstream Calnode](#relationship-to-upstrea
 Branches: `district` is the default branch and what District AI runs. The Go module path is
 kept as upstream's so the fork syncs cleanly. See [NOTICE](NOTICE) for attribution.
 
-`Apache-2.0` · `Go 1.26+ (built with 1.27.1)` · `PostgreSQL 17 / SQLite`
+`Apache-2.0` · `Go 1.26+ (built with 1.27.2)` · `PostgreSQL 17 / SQLite`
 
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/distronode-corporation/district-scheduler/badge)](https://scorecard.dev/viewer/?uri=github.com/distronode-corporation/district-scheduler) · [Audit it yourself](AUDIT.md)
 
@@ -321,7 +321,7 @@ domains, Resend email, Google & Microsoft OAuth, Litestream backups, troubleshoo
 
 ## Stack
 
-- **Backend:** Go (`go 1.26` minimum, built and tested with 1.27.1) · PostgreSQL 17 via `pgx` in the fork image (row-level security, multi-tenant), or pure-Go SQLite (`modernc.org/sqlite`, CGO-free, the upstream single-binary shape) · `goose` migrations
+- **Backend:** Go (`go 1.26` minimum, built and tested with 1.27.2) · PostgreSQL 17 via `pgx` in the fork image (row-level security, multi-tenant), or pure-Go SQLite (`modernc.org/sqlite`, CGO-free, the upstream single-binary shape) · `goose` migrations
 - **Admin UI:** SvelteKit 2 / Svelte 5 · Vite 8 · Tailwind 4 · shadcn-svelte (embedded at compile time via `go:embed`)
 - **Public pages:** server-rendered Go `html/template` + vanilla JS (no framework runtime)
 - **Durability:** PostgreSQL in the fork image (back it up the way you back up PostgreSQL); SQLite WAL + optional Litestream replication (S3/R2) in the upstream single-binary shape
