@@ -1,9 +1,10 @@
 version: 2
 
-# gomod and npm are deliberately absent here: those bumps are made upstream first and
-# arrive on this fork with the sync, so a fork-side bump would edit go.mod/go.sum and
-# frontend/pnpm-lock.yaml — files shared with upstream — and drift them against it.
-# What is left is what the fork actually owns: its own workflow pins and its own image.
+# gomod and npm are covered too. Their files (go.mod/go.sum, frontend/pnpm-lock.yaml) are
+# shared with upstream, so a fork-side bump can conflict at the next upstream sync; that is
+# accepted in exchange for seeing a security fix here without waiting for upstream to take
+# it (the fork already bumps its own Go toolchain, #46). Minor and patch bumps are grouped
+# into one PR per ecosystem per week, so a sync meets one lockfile change, not a dozen.
 # `cooldown` holds a version bump back until the release is a week old, so a compromised
 # publish that is yanked within days never reaches a PR. Security updates are not delayed.
 updates:
@@ -26,3 +27,25 @@ updates:
       # the next even (LTS) line, with the build proven first.
       - dependency-name: node
         update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      gomod-minor:
+        update-types: [minor, patch]
+
+  # The frontend is a pnpm project; Dependabot's "npm" ecosystem reads and rewrites
+  # frontend/pnpm-lock.yaml.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      frontend-minor:
+        update-types: [minor, patch]
