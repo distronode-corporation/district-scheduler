@@ -243,3 +243,17 @@ at an unconditional `"zoom"`.
 - `pnpm` (not npm). Use `pnpm exec <tool>` for local binaries.
 - Verify changes against the real app, not just builds — this codebase has been
   bitten by CSS that compiles fine but renders wrong.
+
+## Distribution packaging (packaging/)
+
+- One channel per directory: `packaging/ns8/` is the NethServer 8 module
+  (imageroot actions, systemd unit, Vue settings UI, robot tests). Future
+  channels (Umbrel, Coolify, TrueNAS, etc.) get siblings, never a mega-PR.
+- The NS8 module is a thin wrapper around the published app image, built upstream by
+  `.github/workflows/ns8-module.yml` with the same tag scheme as
+  `docker-publish.yml`. Release tags pin module and app to the same version.
+  ⚠️ This fork deletes that workflow and `test-module.yml` (CHANGELOG, upstream sync
+  2026-10-16), so `packaging/ns8/` is inherited source that nothing here builds.
+- The app image ref lives in the `org.nethserver.images` label; at install
+  the cluster exposes it as `${CALNODE_IMAGE}` and the unit + configure read
+  it from there. Never hardcode an app tag in `packaging/ns8/`.
