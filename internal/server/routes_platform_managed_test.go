@@ -29,21 +29,21 @@ import (
 // PATCHes whose body carries the tenant's own fields alongside the platform's credential
 // ones (`/settings/llm` and `/settings/notetaker`).
 var platformManagedGuards = map[string]string{
-	"GET /v1/settings/email":       "h.PlatformManaged(",
-	"PATCH /v1/settings/email":     "h.PlatformManaged(",
-	"POST /v1/settings/email/test": "h.PlatformManaged(",
+	"GET /v1/settings/email":               "h.PlatformManaged(",
+	"PATCH /v1/settings/email":             "h.PlatformManaged(",
+	"POST /v1/settings/email/test":         "h.PlatformManaged(",
 	"POST /v1/settings/email/rsvp-webhook": "h.PlatformManaged(",
-	"GET /v1/settings/google":      "h.PlatformManaged(",
-	"PATCH /v1/settings/google":    "h.PlatformManaged(",
-	"GET /v1/settings/zoom":        "h.PlatformManaged(",
-	"PATCH /v1/settings/zoom":      "h.PlatformManaged(",
-	"GET /v1/settings/livekit":     "h.PlatformManaged(",
-	"PATCH /v1/settings/livekit":   "h.PlatformManaged(",
-	"GET /v1/settings/stripe":      "h.PlatformManaged(",
-	"PATCH /v1/settings/stripe":    "h.PlatformManaged(",
-	"POST /v1/settings/llm/test":   "h.PlatformManaged(",
-	"PATCH /v1/settings/llm":       `h.PlatformManagedFields("endpoint", "model", "api_key")`,
-	"PATCH /v1/settings/notetaker": `h.PlatformManagedFields("stt_api_key")`,
+	"GET /v1/settings/google":              "h.PlatformManaged(",
+	"PATCH /v1/settings/google":            "h.PlatformManaged(",
+	"GET /v1/settings/zoom":                "h.PlatformManaged(",
+	"PATCH /v1/settings/zoom":              "h.PlatformManaged(",
+	"GET /v1/settings/livekit":             "h.PlatformManaged(",
+	"PATCH /v1/settings/livekit":           "h.PlatformManaged(",
+	"GET /v1/settings/stripe":              "h.PlatformManaged(",
+	"PATCH /v1/settings/stripe":            "h.PlatformManaged(",
+	"POST /v1/settings/llm/test":           "h.PlatformManaged(",
+	"PATCH /v1/settings/llm":               `h.PlatformManagedFields("endpoint", "model", "api_key")`,
+	"PATCH /v1/settings/notetaker":         `h.PlatformManagedFields("stt_api_key")`,
 }
 
 // tenantSafeSettingsRoutes are the /v1/settings paths a tenant legitimately owns. Named

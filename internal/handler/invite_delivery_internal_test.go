@@ -27,7 +27,7 @@ type inviteProvider struct {
 	created []calendar.CreateEventParams
 }
 
-func (p *inviteProvider) Name() string                                           { return "google" }
+func (p *inviteProvider) Name() string { return "google" }
 
 // ForDB satisfies this fork's Provider (calendar.go): the stub holds no handle.
 func (p *inviteProvider) ForDB(*db.DB) calendar.Provider { return p }
