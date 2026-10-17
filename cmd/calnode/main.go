@@ -62,7 +62,7 @@ func main() {
 	logger.Info("starting calnode", "version", bi.Version, "commit", bi.Commit, "build_time", bi.BuildTime, "dirty", bi.Dirty)
 
 	if cfg.GoogleClientID != "" {
-		slog.Info("Google OAuth configured", "client_id_prefix", cfg.GoogleClientID[:20])
+		slog.Info("Google OAuth configured", "client_id_prefix", cfg.GoogleClientID[:min(20, len(cfg.GoogleClientID))])
 	} else {
 		slog.Warn("Google OAuth NOT configured — GOOGLE_CLIENT_ID is empty")
 	}

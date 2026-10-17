@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calnode/calnode/internal/caldav"
 	"github.com/calnode/calnode/internal/calendar"
 	"github.com/calnode/calnode/internal/dbtest"
 	"github.com/calnode/calnode/internal/gcal"
@@ -304,5 +305,53 @@ func TestDisconnectCalendar_whenNotConnected_returns204(t *testing.T) {
 
 	if rec.Code != http.StatusNoContent {
 		t.Errorf("status = %d; want 204", rec.Code)
+	}
+}
+
+// TestConnectCalDAV_failureIsGeneric is the #104 regression: connection-refused vs
+// timeout vs TLS vs auth failure must not be distinguishable through the form,
+// or any authenticated member gains a LAN scan oracle. The detail goes to logs.
+func TestConnectCalDAV_failureIsGeneric(t *testing.T) {
+	database := dbtest.Open(t)
+
+	h := handler.New(database, slog.Default())
+	cc, err := caldav.New(database, testGCalKeyHex)
+	if err != nil {
+		t.Fatalf("caldav.New: %v", err)
+	}
+	svc := calendar.NewService(database)
+	svc.Register(cc)
+	h.SetCalendar(svc)
+
+	body := `{"name":"Cal User","email":"cal@example.com","timezone":"UTC"}`
+	sreq := httptest.NewRequest(http.MethodPost, "/v1/setup", strings.NewReader(body))
+	sreq.Header.Set("Content-Type", "application/json")
+	srec := httptest.NewRecorder()
+	h.Setup(srec, sreq)
+	if srec.Code != http.StatusCreated {
+		t.Fatalf("setup: got %d", srec.Code)
+	}
+	var setup struct {
+		APIKey string `json:"api_key"`
+	}
+	json.Unmarshal(srec.Body.Bytes(), &setup) //nolint:errcheck
+
+	// Nothing listens on port 1: fast, deterministic connection-refused.
+	req := authReq(http.MethodPost, "/v1/calendar/caldav/connect",
+		`{"server_url":"http://127.0.0.1:1/","username":"u","app_password":"p"}`, setup.APIKey)
+	rec := httptest.NewRecorder()
+	h.RequireAuth(h.ConnectCalDAV)(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d; want 400 — %s", rec.Code, rec.Body.String())
+	}
+	resp := rec.Body.String()
+	if !strings.Contains(resp, "could not connect") {
+		t.Errorf("body missing the generic message: %s", resp)
+	}
+	for _, leak := range []string{"refused", "dial", "timeout", "TLS", "handshake", "No route", "PROPFIND"} {
+		if strings.Contains(strings.ToLower(resp), strings.ToLower(leak)) {
+			t.Errorf("body leaks transport detail %q: %s", leak, resp)
+		}
 	}
 }

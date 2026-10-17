@@ -145,6 +145,47 @@ Upstream's migrations 00062-00067 are this fork's 00069-00074, each in both dial
   `webhook_deliveries` is a tenant table under RLS.
 - `signatures/version1/cla.json` stays deleted.
 
+### Upstream sync, 2026-10-16
+
+Upstream Calnode's `v0.11.1` tag (`39954841`: releases 0.10.1, 0.11.0 and 0.11.1) merged
+onto `district`. Upstream's migrations 00068-00070 are this fork's 00076-00078, each in
+both dialects.
+
+- **Calnode-sent calendar invites and RSVP tracking** (`invite_delivery` per event type,
+  copied onto each booking; `booking_attendees.rsvp_status`; the `booking.rsvp` webhook
+  event; `POST /v1/settings/email/rsvp-webhook`; `POST /v1/email/inbound/resend`). Off by
+  default: the column default keeps every event type on the host's calendar. The webhook
+  setup route reads the instance's Resend key, so it is `PlatformManaged` like the rest of
+  Settings -> Email. The inbound route is HostWorkspace-scoped, and the webhook it creates
+  points at the workspace's public host (`publicURL`), so the signing secret and the
+  bookings an answer can reach are one workspace's. The reply-address lookup used
+  `COLLATE NOCASE` (a syntax error on PostgreSQL); it is `LOWER() = LOWER()`. The RSVP
+  address save used `datetime('now')`; it binds `dbtime.Now()`. 00077 leaves out
+  upstream's `invite_organizer` backfill: it can match no row here (00076 and 00077 ship
+  together) and its uncorrelated `server_settings WHERE id = 1` subquery returns one row
+  per workspace since 00060. `rsvp_at` is `COLLATE "C"` on PostgreSQL.
+- **Directory display order** (`event_types.display_order`) and **business branding on
+  the person and team directories** through upstream's shared `businessHeader` partial,
+  which keeps this fork's `var(--bk-fg)` name colour. Upstream's branding test now stores
+  the logo and avatar rows (00075), since a `/branding/` URL with no stored image reads
+  as unset here.
+- **Security fixes from 0.10.1**: `GET /v1/bookings/{id}` rate limiting is moot here (the
+  route is credential-scoped since F4 and keeps that); CalDAV no longer sends Basic
+  credentials across origins on a redirect (upstream #105, merged with this fork's
+  redirect pinning, which stays); a failed CalDAV connect answers one generic sentence
+  and logs the detail (#104); a short `GOOGLE_CLIENT_ID` no longer panics at boot.
+- **Fixes from 0.11.1**: deleting an event type with bookings answers 409, not 500
+  (SQLite's `ON DELETE RESTRICT` code 1811 is classified, beside PostgreSQL's 23503);
+  round-robin never assigns an unavailable host (#146); the dashboard stops listing
+  inactive event types.
+- **Not taken**: upstream's NethServer 8 module workflows (`ns8-module.yml`,
+  `test-module.yml`) are deleted here, like pullfrog: they publish upstream's NS8 image,
+  run on every pull request, and use floating action tags. `packaging/ns8/` itself is kept
+  as inherited, inert source. Upstream's toolchain line (`go1.26.9`) yields to this fork's
+  `go1.27.2`; `.github/` and `Dockerfile` keep this fork's pinned SHAs and digests.
+  Litestream stays 0.3.13 (upstream did not move it, and `Dockerfile.district` carries
+  none).
+
 ### Security
 - **Go toolchain 1.27.2** (`toolchain` in `go.mod`, and the `golang:1.27.2-alpine` builder
   in both Dockerfiles, pinned by digest). Go 1.27.1's standard library carries 12 published

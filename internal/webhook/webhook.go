@@ -65,6 +65,9 @@ const (
 	// FieldHoursBefore only ever has a value on booking.reminder, where it says which
 	// configured reminder fired (an event type may have several). Omitted elsewhere.
 	FieldHoursBefore = "hours_before"
+	// FieldRSVPStatus only ever has a value on booking.rsvp: the booker's answer to a
+	// Calnode-sent invite.
+	FieldRSVPStatus = "rsvp_status"
 )
 
 // AllFields is every selectable field, in payload order. Used to validate config
@@ -76,7 +79,7 @@ var AllFields = []string{
 	FieldHostID, FieldHostName, FieldHostEmail,
 	FieldAttendeeName, FieldAttendeeEmail, FieldAttendeeTZ, FieldAnswers,
 	FieldPaymentStatus, FieldAmountPaid, FieldCurrency,
-	FieldHoursBefore,
+	FieldHoursBefore, FieldRSVPStatus,
 }
 
 // defaultFields reproduces the original payload (no PII, no answers) so a webhook with no
@@ -89,7 +92,7 @@ var defaultFields = []string{
 	FieldStatus, FieldLocation, FieldCancelReason, FieldCreatedAt,
 	FieldPreviousStartAt, FieldPreviousEndAt,
 	FieldPaymentStatus, FieldAmountPaid, FieldCurrency,
-	FieldHoursBefore,
+	FieldHoursBefore, FieldRSVPStatus,
 }
 
 var validField = func() map[string]bool {
@@ -142,6 +145,9 @@ type BookingPayload struct {
 	// HoursBefore is set only on booking.reminder: which of the event type's configured
 	// reminders this delivery is for.
 	HoursBefore int `json:"hours_before,omitempty"`
+	// RSVPStatus is the booker's answer to a Calnode-sent invite (accepted, declined,
+	// tentative); set on booking.rsvp only.
+	RSVPStatus string `json:"rsvp_status,omitempty"`
 }
 
 type Service struct {
@@ -445,6 +451,7 @@ func buildData(bd enrichedBooking, fields []string) map[string]any {
 		FieldPreviousEndAt:   bd.core.PreviousEndAt,
 		FieldPaymentStatus:   bd.core.PaymentStatus,
 		FieldCurrency:        bd.core.AmountPaidCurrency,
+		FieldRSVPStatus:      bd.core.RSVPStatus,
 	}
 	out := make(map[string]any, len(fields))
 	for _, f := range fields {

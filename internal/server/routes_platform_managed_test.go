@@ -32,6 +32,7 @@ var platformManagedGuards = map[string]string{
 	"GET /v1/settings/email":       "h.PlatformManaged(",
 	"PATCH /v1/settings/email":     "h.PlatformManaged(",
 	"POST /v1/settings/email/test": "h.PlatformManaged(",
+	"POST /v1/settings/email/rsvp-webhook": "h.PlatformManaged(",
 	"GET /v1/settings/google":      "h.PlatformManaged(",
 	"PATCH /v1/settings/google":    "h.PlatformManaged(",
 	"GET /v1/settings/zoom":        "h.PlatformManaged(",

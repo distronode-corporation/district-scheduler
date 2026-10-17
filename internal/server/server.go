@@ -537,6 +537,7 @@ func New(ctx context.Context, cfg *config.Config, db *db.DB, logger *slog.Logger
 	mux.HandleFunc("GET /v1/settings/email", h.PlatformManaged(h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).GetEmailSettings))))
 	mux.HandleFunc("PATCH /v1/settings/email", settingsRL(h.PlatformManaged(h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).PatchEmailSettings)))))
 	mux.HandleFunc("POST /v1/settings/email/test", settingsRL(h.PlatformManaged(h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).TestEmailConnection)))))
+	mux.HandleFunc("POST /v1/settings/email/rsvp-webhook", settingsRL(h.PlatformManaged(h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).SetupRSVPWebhook)))))
 	mux.HandleFunc("GET /v1/settings/google", h.PlatformManaged(h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).GetGoogleSettings))))
 	mux.HandleFunc("PATCH /v1/settings/google", settingsRL(h.PlatformManaged(h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).PatchGoogleSettings)))))
 	mux.HandleFunc("GET /v1/settings/zoom", h.PlatformManaged(h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).GetZoomSettings))))
@@ -733,6 +734,11 @@ func New(ctx context.Context, cfg *config.Config, db *db.DB, logger *slog.Logger
 	// Stripe payment webhook — public, authenticated by the signing secret (no session
 	// cookie, so the CSRF check doesn't apply). Must receive the raw body.
 	mux.HandleFunc("POST /v1/stripe/webhook", h.Platform((*H).StripeWebhook))
+	// Resend inbound email (email.received): RSVPs to Calnode-sent invites. Public,
+	// authenticated by the webhook signature. Host-scoped: the signing secret and the
+	// bookings it routes to are the workspace's own, and SetupRSVPWebhook points Resend
+	// at the workspace's public host (publicURL), never the identity host.
+	mux.HandleFunc("POST /v1/email/inbound/resend", h.Scoped(handler.HostWorkspace, (*H).InboundEmailResend))
 
 	// API keys
 	mux.HandleFunc("GET /v1/api-keys", h.RequireAuth(h.Scoped(handler.CredentialWorkspace, (*H).ListAPIKeys)))
