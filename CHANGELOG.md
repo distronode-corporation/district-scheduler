@@ -49,7 +49,7 @@ Entries below are a mixture, and which is which decides where a patch should go:
   everything under it (the platform API, the signed session hand-off, `ADMIN_SPA`,
   `MEETING_RECORDING`,
   `PLATFORM_RETURN_ORIGINS`, the neutral tenant root, the booking link that cannot be
-  renamed), and the
+  renamed), crash reporting (`SENTRY_DSN`), and the
   `Dockerfile.district` image. PostgreSQL ([#29]) and `MULTI_TENANT` ([#31]) were
   declined upstream in September 2026 on architectural grounds, so these will never
   appear in an upstream changelog.
@@ -216,6 +216,17 @@ Upstream's migrations 00062-00067 are this fork's 00069-00074, each in both dial
   workspace can only ever act as its own accounts.
 
 ### Added
+- **Crash reporting to Sentry, off unless `SENTRY_DSN` is set (fork).** A panic in an
+  HTTP handler (already turned into a 500 by `Recover`), in a background job, or on the
+  main goroutine is sent with its stack and a few tags: method, the redacted path,
+  request id, job type, workspace id. The request itself is never handed to the SDK, so
+  no headers, cookies, query strings, bodies or IP addresses are sent. Release is the
+  build's commit; `SENTRY_ENVIRONMENT` defaults to `production`. With no DSN the SDK is
+  never initialised. All of it is in `internal/crashreport`.
+- **A panicking background job is a failed attempt, not a crashed process (fork).** It
+  is recovered, logged with its stack and requeued on the normal backoff until
+  `max_attempts`. Before, it took the process down and the reaper retried it after the
+  restart, so one bad payload could crash-loop an instance.
 - **`MEETING_RECORDING` (fork).** `on` or `off`; unset it is on for a single-tenant
   instance, which is upstream's behaviour unchanged, and off under `MULTI_TENANT`. Off
   removes meeting recording and everything that exists only because of a recording: the
