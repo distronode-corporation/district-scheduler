@@ -2,7 +2,7 @@ module github.com/calnode/calnode
 
 go 1.26.0
 
-toolchain go1.27.2
+toolchain go1.27.3
 
 require (
 	github.com/disintegration/imaging v1.6.2

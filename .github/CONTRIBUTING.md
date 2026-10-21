@@ -14,7 +14,7 @@ not Issues.
 
 ## Prerequisites
 
-- **Go 1.26+**; `go.mod` pins the 1.27.2 toolchain, which is what CI tests and both
+- **Go 1.26+**; `go.mod` pins the 1.27.3 toolchain, which is what CI tests and both
   Dockerfiles build with (the SQLite build is pure-Go, so no CGO and no C toolchain)
 - **Node 20+** and **pnpm** (the admin UI is SvelteKit; we use `pnpm`, not npm)
 - **PostgreSQL 17** (what CI's `postgres` job runs), only if you are touching SQL or the
