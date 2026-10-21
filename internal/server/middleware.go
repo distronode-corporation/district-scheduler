@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/calnode/calnode/internal/crashreport"
 	"github.com/calnode/calnode/internal/metrics"
 )
 
@@ -65,12 +66,26 @@ func Logging(logger *slog.Logger, next http.Handler) http.Handler {
 	})
 }
 
+// tokenPathPrefixes are the path prefixes whose next segment is a bearer credential:
+//
+//	/manage/{token}        the booker's manage link (server.go)
+//	/room/{room}           the video-room join URL (server.go)
+//	/v1/invites/{token}    the invite lookup and claim API (server.go); the admin-only
+//	                       /v1/invites/{id} routes share the prefix and are redacted too
+//	/admin/invite/{token}  the admin SPA's invite page, the link the invite email
+//	                       carries (frontend/src/routes/invite/[token])
+//
+// TestTokenRoutesNeverReachLogsOrCrashReports derives the token routes from server.go
+// and from the SPA's route tree and fails when one is not covered here, so a new token
+// route cannot be added without its prefix.
+var tokenPathPrefixes = []string{"/manage/", "/room/", "/v1/invites/", "/admin/invite/"}
+
 // redactTokenPaths replaces bearer credentials carried in URL paths before they
-// reach the logs: manage tokens (/manage/{token}), room join URLs (/room/...),
-// and invite tokens (/invites/{token}) would otherwise land verbatim in stdout
-// and any log drain. Query strings are never logged here (only Path is).
+// reach the logs or a crash report: the tokens above would otherwise land verbatim
+// in stdout, any log drain, and Sentry's path tag. Query strings are never logged
+// here (only Path is).
 func redactTokenPaths(path string) string {
-	for _, prefix := range []string{"/manage/", "/room/", "/invites/"} {
+	for _, prefix := range tokenPathPrefixes {
 		if strings.HasPrefix(path, prefix) {
 			return prefix + "[redacted]"
 		}
@@ -80,7 +95,9 @@ func redactTokenPaths(path string) string {
 
 // Recover converts a panicking handler into a structured 500 instead of a
 // dropped connection: it logs the stack with the request id and writes a
-// generic error (never the panic value, which may contain request data).
+// generic error (never the panic value, which may contain request data). The
+// panic also goes to crash reporting when that is on (internal/crashreport),
+// tagged with the same redacted path the log line uses.
 func Recover(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -93,6 +110,11 @@ func Recover(logger *slog.Logger, next http.Handler) http.Handler {
 					"panic", fmt.Sprintf("%v", v),
 					"stack", string(debug.Stack()),
 				)
+				crashreport.Recovered(v, map[string]string{
+					"method":     r.Method,
+					"path":       redactTokenPaths(r.URL.Path),
+					"request_id": reqID,
+				})
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusInternalServerError)
 				fmt.Fprint(w, `{"error":"internal error"}`)

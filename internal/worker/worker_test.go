@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -452,5 +453,42 @@ func TestWorker_skipsJobForDeletedWebhook(t *testing.T) {
 	database.QueryRowContext(ctx, `SELECT status FROM jobs`).Scan(&jobStatus)
 	if jobStatus != "done" {
 		t.Errorf("job status = %q; want done (skipped silently)", jobStatus)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// A panicking job is a failed attempt, not a crashed process
+// ---------------------------------------------------------------------------
+
+func TestWorker_panickingJobIsRetriedNotFatal(t *testing.T) {
+	database, svc := setup(t)
+	ctx := context.Background()
+
+	w := newWorker(t, database, svc)
+	w.RegisterHandler("custom.panic", func(context.Context, string, string) error {
+		var m map[string]int
+		m["x"]++ // assignment to entry in nil map
+		return nil
+	})
+	if _, err := database.ExecContext(ctx,
+		`INSERT INTO jobs (id, type, payload, run_at) VALUES ('job-panic', 'custom.panic', '{}', ?)`,
+		time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	w.Poll(ctx) // a panic escaping here fails the test binary
+
+	var status, lastError string
+	var attempts int
+	if err := database.QueryRowContext(ctx,
+		`SELECT status, attempts, COALESCE(last_error, '') FROM jobs WHERE id = 'job-panic'`).
+		Scan(&status, &attempts, &lastError); err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if status != "pending" || attempts != 1 {
+		t.Errorf("status = %q attempts = %d; want pending after 1 attempt (requeued with backoff)", status, attempts)
+	}
+	if !strings.HasPrefix(lastError, "panic: ") {
+		t.Errorf("last_error = %q; want the recovered panic", lastError)
 	}
 }

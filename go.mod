@@ -2,10 +2,11 @@ module github.com/calnode/calnode
 
 go 1.26.0
 
-toolchain go1.27.2
+toolchain go1.27.3
 
 require (
 	github.com/disintegration/imaging v1.6.2
+	github.com/getsentry/sentry-go v0.50.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/joho/godotenv v1.5.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0

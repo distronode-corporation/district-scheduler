@@ -15,6 +15,7 @@ import (
 
 	"github.com/calnode/calnode/internal/buildinfo"
 	"github.com/calnode/calnode/internal/config"
+	"github.com/calnode/calnode/internal/crashreport"
 	"github.com/calnode/calnode/internal/db"
 	"github.com/calnode/calnode/internal/keyvault"
 	"github.com/calnode/calnode/internal/server"
@@ -60,6 +61,14 @@ func main() {
 
 	bi := buildinfo.Get()
 	logger.Info("starting calnode", "version", bi.Version, "commit", bi.Commit, "build_time", bi.BuildTime, "dirty", bi.Dirty)
+
+	// Off unless SENTRY_DSN is set. HTTP handlers and worker jobs report their own
+	// recovered panics; this defer covers a panic on the main goroutine itself.
+	// Neither runs on the os.Exit paths below, which log their reason instead.
+	if crashreport.Init(logger) {
+		defer crashreport.Flush()
+		defer crashreport.RecoverAndRepanic()
+	}
 
 	if cfg.GoogleClientID != "" {
 		slog.Info("Google OAuth configured", "client_id_prefix", cfg.GoogleClientID[:20])
