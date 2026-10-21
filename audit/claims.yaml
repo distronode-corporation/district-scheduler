@@ -199,6 +199,11 @@ claims:
         - Optional analytics: GA4/GTM, native and consent-gated (see
           cookie-consent-gated-analytics below) — off by default, and even when on,
           carries no meeting content.
+        - Crash reports (this fork only): Sentry, and only when the operator sets
+          SENTRY_DSN. A recovered panic's value and stack plus a few tags (method,
+          redacted path, request id, job type, workspace id); the request itself is
+          never handed to the SDK, so no meeting content, headers, cookies, bodies
+          or IP addresses. internal/crashreport.
       LiveKit (built-in video) is the one integration where "leaves your
       infrastructure" depends entirely on an operator choice made at setup, not a
       Calnode default: if you point it at a self-hosted LiveKit server, live
@@ -327,11 +332,11 @@ claims:
 
   - id: lean-dependency-tree
     claim: >
-      The Go backend has a lean dependency tree — 11 direct and 22 indirect Go
-      modules, 33 in total, not the sprawling transitive tree typical of larger
+      The Go backend has a lean dependency tree — 12 direct and 22 indirect Go
+      modules, 34 in total, not the sprawling transitive tree typical of larger
       frameworks.
     verify:
-      - "Read go.mod: two require blocks, 11 entries and 22 `// indirect` entries.
+      - "Read go.mod: two require blocks, 12 entries and 22 `// indirect` entries.
          That is the number this claim states, and it is the one that is
          reproducible."
       - "syft dir:. --exclude './frontend/**' --exclude './.git/**' -o table | grep
@@ -339,7 +344,9 @@ claims:
       - "⚠️ `go list -m all | wc -l` returns considerably more (111 at
          last_verified_commit) because it includes every dependency's own TEST
          dependencies, which are not compiled into the binary. Both numbers are
-         real; they answer different questions."
+         real; they answer different questions. The twelfth direct module is
+         github.com/getsentry/sentry-go (this fork's crash reporting, which adds no
+         indirect entry); `go list -m all` was 118 with it."
     status: verified
     caveat: >
       This claim is scoped to the Go backend. The SvelteKit admin frontend pulls in
