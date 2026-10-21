@@ -146,9 +146,14 @@ Upstream's migrations 00062-00067 are this fork's 00069-00074, each in both dial
 - `signatures/version1/cla.json` stays deleted.
 
 ### Security
-- **Go toolchain 1.27.2** (`toolchain` in `go.mod`, and the `golang:1.27.2-alpine` builder
-  in both Dockerfiles, pinned by digest). Go 1.27.1's standard library carries 12 published
-  vulnerabilities that `govulncheck` reports as reachable from this module, all fixed in
+- **Go toolchain 1.27.3** (`toolchain` in `go.mod`, and the `golang:1.27.3-alpine` builder
+  in both Dockerfiles, pinned by digest). Go 1.27.2's `crypto/x509` carries GO-2026-6809
+  (compromised intermediate certificates are not distrusted), which `govulncheck` reports
+  as reachable through `mailer.SMTP.Send` (the implicit-TLS dial to the operator's SMTP
+  server verifies its certificate chain); it is fixed in 1.27.3. No code or dependency
+  changed.
+- **Go toolchain 1.27.2** (superseded by 1.27.3 above). Go 1.27.1's standard library
+  carries 12 published vulnerabilities that `govulncheck` reports as reachable from this module, all fixed in
   1.27.2: GO-2026-6599 and GO-2026-6600 (`html/template`), GO-2026-6603, GO-2026-6610,
   GO-2026-6611, GO-2026-6612 and GO-2026-6617 (`net/http/internal/http2`), GO-2026-6605,
   GO-2026-6609 and GO-2026-6613 (`net/http`), GO-2026-6607 (`crypto/tls`) and GO-2026-6608
@@ -380,7 +385,7 @@ Upstream's migrations 00062-00067 are this fork's 00069-00074, each in both dial
   ownership when the instance has none. Archived accounts are still refused.
 
 ### Changed
-- **Go toolchain pinned to 1.27.2** in `go.mod`, the version both Dockerfiles build with,
+- **Go toolchain pinned to 1.27.3** in `go.mod`, the version both Dockerfiles build with,
   so CI tests the toolchain that ships (it tested 1.26.6). The `go` directive stays 1.26.0.
 - **On a multi-tenant instance an event type's booking link cannot be renamed.**
   `PATCH /v1/event-types/{slug}` answers 409 "renaming an event type's booking link is not
