@@ -152,7 +152,7 @@ jobs:
 
       - name: gosec (clean-security-scan claim — AUDIT.md says every finding is annotated)
         # Pinned to a commit, not a tag: v2.29.0 (the newest tag) links golang.org/x/tools
-        # v0.49.0, which cannot read the export data Go 1.27.2 writes ("export data version 5
+        # v0.49.0, which cannot read the export data Go 1.27 writes ("export data version 5
         # is greater than maximum supported version 4"), so every package fails to load.
         # This commit (gosec #1775) links x/tools v0.52.0, which can. Move back to a tag once
         # gosec releases one past v2.29.0.
