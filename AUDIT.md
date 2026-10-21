@@ -69,7 +69,7 @@ git clone https://github.com/distronode-corporation/district-scheduler \
 
 # Install the scanners (Go tools install cleanly with no CGO toolchain needed)
 go install golang.org/x/vuln/cmd/govulncheck@latest
-# gosec: the commit CI pins; v2.29.0, the newest tag, cannot load packages built by Go 1.27.2
+# gosec: the commit CI pins; v2.29.0, the newest tag, cannot load packages built by Go 1.27
 go install github.com/securego/gosec/v2/cmd/gosec@v2.29.1-0.20261012130337-71577268350e
 go install github.com/zricethezav/gitleaks/v8@latest
 go install github.com/anchore/syft/cmd/syft@latest
