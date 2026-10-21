@@ -214,6 +214,10 @@ Upstream's migrations 00062-00067 are this fork's 00069-00074, each in both dial
   The new lookups read `calendar_connections` and `connection_calendars` through the
   workspace-bound handle, like every other CalDAV read, so in `MULTI_TENANT` mode a
   workspace can only ever act as its own accounts.
+- **Invite tokens no longer reach the request logs.** The path redaction matched
+  `/invites/`, a prefix no route has, so `/v1/invites/{token}` and the email's
+  `/admin/invite/{token}` link were logged with the token in full until this change;
+  both are redacted now, in the logs and in crash reports.
 
 ### Added
 - **Crash reporting to Sentry, off unless `SENTRY_DSN` is set (fork).** A panic in an
