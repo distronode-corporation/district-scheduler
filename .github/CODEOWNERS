@@ -1,1 +1,3 @@
-* @distronode-com
+# @seandean approves every change: the account that writes a pull request (usually
+# @distronode-com) can never approve it, so the owner must be a different person.
+* @seandean
