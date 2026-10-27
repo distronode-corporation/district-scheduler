@@ -123,11 +123,12 @@ func TestConnectCalDAV_singleTenantStillAcceptsPlainHTTP(t *testing.T) {
 	if strings.Contains(got, "must be a valid URL using one of") {
 		t.Errorf("error = %q; a self-hoster's http:// URL was refused on the scheme", got)
 	}
-	// It got as far as issuing a PROPFIND at the URL, which is what "validation passed"
-	// means here. The connect failure itself is the ordinary one for a port with nothing
-	// on it.
-	if !strings.Contains(got, "127.0.0.1:1") {
-		t.Errorf("error = %q; want a connect-time failure at the URL, which means validation passed", got)
+	// It got as far as the connect attempt, which is what "validation passed" means here.
+	// Since upstream #104 every connect failure answers one generic sentence (the detail is
+	// logged), and only cc.Connect's failure path writes it, so it is the proof that
+	// validation let the URL through.
+	if !strings.Contains(got, "could not connect") {
+		t.Errorf("error = %q; want the connect-time failure, which means validation passed", got)
 	}
 }
 

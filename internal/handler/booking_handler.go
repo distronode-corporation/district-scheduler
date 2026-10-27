@@ -410,6 +410,42 @@ func (h *Handler) validateRescheduleTime(ctx context.Context, bookingID, eventTy
 	return h.validateBookingTime(ctx, &et, "fixed", hostIDs, nil, newStart, newEnd)
 }
 
+// filterAvailableHosts narrows a candidate pool to the hosts actually free
+// within their own configured availability for [startAt, endAt).
+//
+// Why this exists separately from validateBookingTime (#146): that function
+// answers "does this slot exist at all?", which for round-robin means only that
+// AT LEAST ONE candidate is within hours — deliberately, because it mirrors
+// slots.pickHosts, and the public /slots listing must still offer a day where
+// some host is free. It does NOT answer "who gets assigned?", and the
+// assignment happens later inside booking.Service.Create by rotation strategy.
+// Handing Create the unfiltered pool therefore let it pick a host who had
+// declared themselves unavailable, booking them on the available host's slots.
+//
+// calendarFreeHosts does not close this gap: it filters on external calendar
+// BUSY, and returns the pool untouched when no calendar provider is connected —
+// the common self-hosted case, where overrides are the only availability signal.
+//
+// Pure DB reads (no external calls), so this is cheap on the hot path. For
+// non-round-robin modes validateBookingTime has already required every
+// candidate to be available, making this a no-op that preserves behaviour.
+func (h *Handler) filterAvailableHosts(ctx context.Context, et *bookableEventType, candidates []string, startAt, endAt time.Time) ([]string, error) {
+	available := make([]string, 0, len(candidates))
+	for _, hostID := range candidates {
+		ok, err := h.hostAvailableAt(ctx, hostID, et.ID, startAt, endAt)
+		if err != nil {
+			return nil, fmt.Errorf("check host availability: %w", err)
+		}
+		if ok {
+			available = append(available, hostID)
+		}
+	}
+	if len(available) == 0 {
+		return nil, errSlotUnavailable
+	}
+	return available, nil
+}
+
 // hostAvailableAt reports whether [startAt, endAt) falls entirely within one of
 // userID's configured availability windows (weekly rules, or a date override) for
 // eventTypeID, per internal/slots' own per-date resolution (slots.ResolveDayWindows).
@@ -473,6 +509,9 @@ type bookableEventType struct {
 	// so the page can grey them out. Read by the public slots endpoint only: the MCP
 	// tool and the booking assistant must keep seeing bookable times and nothing else.
 	ShowTakenSlots bool
+	// InviteDelivery is who sends the booker's invite (booking.InviteByCalendar/ByCalnode),
+	// copied onto each booking at creation.
+	InviteDelivery string
 }
 
 // loadBookableEventType loads an event type by slug for the booking-creation/slot paths.
@@ -487,12 +526,14 @@ func (h *Handler) loadBookableEventType(ctx context.Context, slug string) (*book
 		SELECT id, user_id, name, duration_minutes, slot_interval_minutes,
 		       location_type, location_value, allow_phone_call, routing_mode, rr_strategy,
 		       buffer_before_minutes, buffer_after_minutes, min_notice_minutes, max_future_days,
-		       is_active, is_public, show_taken_slots, max_active_bookings, price_cents, currency
+		       is_active, is_public, show_taken_slots, max_active_bookings, price_cents, currency,
+		       invite_delivery
 		FROM event_types WHERE slug = ?`, slug).
 		Scan(&et.ID, &et.UserID, &et.Name, &et.DurationMinutes, &et.SlotIntervalMinutes,
 			&et.LocationType, &et.LocationValue, &et.AllowPhoneCall, &et.RoutingMode, &et.RRStrategy,
 			&et.BufferBeforeMinutes, &et.BufferAfterMinutes, &et.MinNoticeMinutes, &et.MaxFutureDays,
-			&isActive, &isPublic, &showTaken, &et.MaxActiveBookings, &et.PriceCents, &et.Currency)
+			&isActive, &isPublic, &showTaken, &et.MaxActiveBookings, &et.PriceCents, &et.Currency,
+			&et.InviteDelivery)
 	if err != nil || isActive == 0 || isPublic == 0 {
 		return nil, errEventTypeNotFound
 	}
@@ -549,6 +590,9 @@ func (h *Handler) createBookingForSlug(ctx context.Context, slug string, startAt
 	if err := h.validateBookingTime(ctx, et, et.RoutingMode, candidates, required, startAt.UTC(), endAt); err != nil {
 		return nil, err
 	}
+	if candidates, err = h.filterAvailableHosts(ctx, et, candidates, startAt.UTC(), endAt); err != nil {
+		return nil, err
+	}
 	candidates, optional, err = h.calendarFreeHosts(ctx, et, candidates, required, optional, startAt.UTC(), endAt)
 	if err != nil {
 		if !errors.Is(err, errSlotUnavailable) {
@@ -571,6 +615,7 @@ func (h *Handler) createBookingForSlug(ctx context.Context, slug string, startAt
 		Answers:             answers,
 		MaxActivePerInvitee: et.MaxActiveBookings,
 		MaxBookingsPerHour:  maxBookingsPerEmailPerHour,
+		InviteDelivery:      et.InviteDelivery,
 	})
 	if err != nil {
 		return nil, err
@@ -611,9 +656,12 @@ type bookingJSON struct {
 	AmountPaidCurrency string `json:"amount_paid_currency,omitempty" jsonschema:"ISO 4217 currency of the charge (lowercase)"`
 	// ConfirmFailed flags a booking whose initial confirmation email failed after
 	// retry — operator-visible so a lost confirmation can be followed up manually.
-	ConfirmFailed bool           `json:"confirm_failed,omitempty"`
-	Attendees     []attendeeJSON `json:"attendees,omitempty"`
-	Hosts         []hostBrief    `json:"hosts,omitempty"` // assigned host(s) for display; set on the public create response
+	ConfirmFailed bool `json:"confirm_failed,omitempty"`
+	// RSVPStatus is the booker's answer to a Calnode-sent invite ("accepted", "declined",
+	// "tentative"), absent until one arrives. Admin list views only.
+	RSVPStatus string         `json:"rsvp_status,omitempty"`
+	Attendees  []attendeeJSON `json:"attendees,omitempty"`
+	Hosts      []hostBrief    `json:"hosts,omitempty"` // assigned host(s) for display; set on the public create response
 }
 
 // hostBrief is an assigned host's identity for the booking-confirmation screen.
@@ -866,6 +914,10 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusConflict, "this slot is no longer available")
 		return
 	}
+	if candidates, err = h.filterAvailableHosts(r.Context(), et, candidates, startAt.UTC(), endAt); err != nil {
+		h.writeError(w, http.StatusConflict, "this slot is no longer available")
+		return
+	}
 
 	candidates, optional, err = h.calendarFreeHosts(r.Context(), et, candidates, required, optional, startAt.UTC(), endAt)
 	if err != nil {
@@ -901,6 +953,7 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 		Answers:             answers,
 		MaxActivePerInvitee: et.MaxActiveBookings,
 		MaxBookingsPerHour:  maxBookingsPerEmailPerHour,
+		InviteDelivery:      et.InviteDelivery,
 	})
 	if err != nil {
 		if errors.Is(err, booking.ErrDoubleBooked) {
@@ -1031,12 +1084,11 @@ func (h *Handler) hostPrefsOrDefault(ctx context.Context, bookingID, userID stri
 
 // hostBookingData returns a per-host copy of base with the fields every host
 // notification email needs filled in: the host's own name/email (so "with <name>"
-// reads correctly), whether to attach an ICS (only when that host has no connected
-// destination calendar of their own), and the ICS sequence number.
-func (h *Handler) hostBookingData(ctx context.Context, base mailer.BookingData, host assignedHost, updatedAt time.Time) mailer.BookingData {
+// reads correctly), the host's own invite (applyHostInvite), and the ICS sequence number.
+func (h *Handler) hostBookingData(ctx context.Context, base mailer.BookingData, host assignedHost, inviteMode string, updatedAt time.Time) mailer.BookingData {
 	hd := base
 	hd.HostName, hd.HostEmail = host.Name, host.Email
-	hd.AttachICS = h.noConnectedDestination(ctx, host.UserID)
+	h.applyHostInvite(ctx, &hd, inviteMode, host.UserID)
 	hd.ICSSequence = int(updatedAt.Unix())
 	return hd
 }
@@ -1193,7 +1245,7 @@ func (h *Handler) createHostEventsAndNotify(ctx context.Context, b *booking.Book
 				Start:          b.StartAt,
 				End:            b.EndAt,
 				OrganizerName:  in.OrganizerName,
-				OrganizerEmail: in.OrganizerEmail,
+				OrganizerEmail: calendarInvitee(b.InviteDelivery, in.OrganizerEmail),
 				AddMeet:        autoGenMeet && host.IsPrimary,
 			})
 			if err != nil {
@@ -1235,7 +1287,7 @@ func (h *Handler) createHostEventsAndNotify(ctx context.Context, b *booking.Book
 			primaryPrefs = prefs
 		}
 		if prefs.NotifyHostBooking {
-			hd := h.hostBookingData(ctx, *bData, host, b.UpdatedAt)
+			hd := h.hostBookingData(ctx, *bData, host, b.InviteDelivery, b.UpdatedAt)
 			if livekitHostURL != "" {
 				hd.LocationValue = livekitHostURL // host email gets the controls-enabled link
 			}
@@ -1326,7 +1378,7 @@ func (h *Handler) dispatchBookingConfirmation(b *booking.Booking, in bookingConf
 	// Attendee confirmation, once. "With:" names the primary host; gated on the
 	// primary host's notification preference (matches prior behaviour).
 	bData.HostName, bData.HostEmail = primaryHost(hosts).Name, primaryHost(hosts).Email
-	bData.AttachICS = h.noConnectedDestination(ctx, b.HostID)
+	h.applyInviteDelivery(ctx, &bData, b.InviteDelivery, b.HostID)
 	bData.ICSSequence = int(b.UpdatedAt.Unix())
 	confirmFailed := hostFailed
 	if primaryPrefs.NotifyConfirmation {
@@ -1591,6 +1643,15 @@ func (h *Handler) enrichBookings(ctx context.Context, bookings []booking.Booking
 		}
 	}
 
+	// The booker's RSVP to a Calnode-sent invite, once one has arrived.
+	if err := h.scanPairs(ctx, bookingRSVPQuery, ids, func(bid, val string) {
+		if i, ok := idxByID[bid]; ok {
+			items[i].RSVPStatus = val
+		}
+	}); err != nil {
+		return nil, err
+	}
+
 	// Organizer attendee. Three columns, so it doesn't fit scanPairs; ph is a generated
 	// run of "?" and every id is bound.
 	rows, err := h.db.QueryContext(ctx, // #nosec G701 -- ph is placeholders(), a generated run of "?"; every value is bound via ids..., never concatenated into the SQL text
@@ -1630,6 +1691,9 @@ const (
 	bookingHostNamesQuery pairQuery = `SELECT b.id, COALESCE(u.name, '') FROM bookings b
 		 LEFT JOIN users u ON u.id = b.host_id
 		 WHERE b.id IN (%s)`
+
+	bookingRSVPQuery pairQuery = `SELECT a.booking_id, a.rsvp_status FROM booking_attendees a
+		 WHERE a.is_organizer = 1 AND a.rsvp_status != 'needs-action' AND a.booking_id IN (%s)`
 )
 
 // placeholders returns "?,?,?" for n, for an IN clause. n must be positive.
@@ -1782,13 +1846,13 @@ func (h *Handler) cancelSideEffects(b booking.Booking) {
 			d.HostName, d.HostEmail = host.Name, host.Email // attendee "With:" = primary host, not owner
 		}
 		if prefs.NotifyHostCancel {
-			hd := h.hostBookingData(ctx, d, host, b.UpdatedAt)
+			hd := h.hostBookingData(ctx, d, host, b.InviteDelivery, b.UpdatedAt)
 			if err := mailer.SendCancellationToHost(ctx, h.getMailer(), hd); err != nil {
 				h.logger.Error("booking cancellation email (host)", "error", err, "booking_id", b.ID, "host", host.UserID)
 			}
 		}
 	}
-	d.AttachICS = h.noConnectedDestination(ctx, b.HostID)
+	h.applyInviteDelivery(ctx, &d, b.InviteDelivery, b.HostID)
 	d.ICSSequence = int(b.UpdatedAt.Unix())
 	if primaryPrefs.NotifyCancellation {
 		if err := mailer.SendCancellationToAttendee(ctx, h.getMailer(), d); err != nil {

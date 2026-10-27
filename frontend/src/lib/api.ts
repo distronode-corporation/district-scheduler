@@ -22,6 +22,8 @@ export type User = {
 };
 
 export type EventType = {
+	/** Lower first on public person/team pages; ties sort by name, then slug. */
+	display_order: number;
 	allow_phone_call: boolean;
 	id: string;
 	slug: string;
@@ -37,6 +39,13 @@ export type EventType = {
 	 *  them. Off by default: the slots endpoint is public, so this makes the host's
 	 *  booked hours visible to anyone with the link. */
 	show_taken_slots: boolean;
+	/** Who sends the booker's calendar invite. 'calendar': each host's connected calendar,
+	 *  from the host's own address. 'calnode': Calnode's own invite, from the email sender
+	 *  in Settings → Email, so no host's personal address reaches the booker. */
+	invite_delivery: 'calendar' | 'calnode';
+	/** Whether Calnode can currently send invites (a sender and working email). Only
+	 *  returned on the single event type GET. */
+	invite_sender_ready?: boolean;
 	location_type: string;
 	location_value?: string;
 	buffer_before_minutes: number;
@@ -103,6 +112,8 @@ export type Booking = {
 	payment_status?: 'pending' | 'paid' | 'refunded';
 	amount_paid_cents?: number;
 	amount_paid_currency?: string;
+	/** The booker's RSVP to a Calnode-sent invite; absent until an answer arrives. */
+	rsvp_status?: 'accepted' | 'declined' | 'tentative';
 };
 
 export type APIKey = {
@@ -181,6 +192,14 @@ export type EmailSettings = {
 	// being delivered over SMTP" can differ, so the server reports the live answer.
 	transport: 'none' | 'smtp' | 'resend_api';
 	enabled: boolean;
+	/** RSVP tracking for invites Calnode sends: the Resend inbound address RSVPs are routed
+	 *  through (e.g. rsvp@reply.example.com). */
+	rsvp_address: string;
+	resend_webhook_secret_set: boolean; // never returned directly
+	/** True when address, webhook secret and Resend API key are all present. */
+	rsvp_tracking: boolean;
+	/** Where Resend must deliver email.received: this instance's BASE_URL + the inbound path. */
+	rsvp_webhook_url: string;
 };
 
 export type GoogleSettings = {

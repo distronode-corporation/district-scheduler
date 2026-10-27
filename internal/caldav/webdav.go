@@ -36,7 +36,11 @@ func (c *Client) do(ctx context.Context, method, rawURL, username, password, dep
 	if err != nil {
 		return 0, nil, "", err
 	}
-	req.SetBasicAuth(username, password)
+	// Credentials go only on requests the caller authenticated: propfind strips
+	// them on cross-origin redirects, so an empty username means "send none".
+	if username != "" {
+		req.SetBasicAuth(username, password)
+	}
 	if body != "" {
 		req.Header.Set("Content-Type", "application/xml; charset=utf-8")
 	}
@@ -69,7 +73,9 @@ func (c *Client) do(ctx context.Context, method, rawURL, username, password, dep
 }
 
 // propfind issues a PROPFIND, following up to 5 redirects with the method preserved, and
-// returns the parsed multistatus. A non-2xx terminal status is an error.
+// returns the parsed multistatus. A non-2xx terminal status is an error. Credentials are
+// sent only while the redirect chain stays on the original origin: a compromised server
+// must not be able to harvest the app password with a 302 elsewhere (upstream #105).
 //
 // pinOrigin, when set, is a URL whose origin every redirect must stay on: a redirect elsewhere
 // is refused before anything is sent to it, so the account's credentials cannot follow it.
@@ -80,7 +86,11 @@ func (c *Client) do(ctx context.Context, method, rawURL, username, password, dep
 func (c *Client) propfind(ctx context.Context, pinOrigin, rawURL, username, password, depth, body string) (*msMultistatus, string, error) {
 	cur := rawURL
 	for hop := 0; hop < 6; hop++ {
-		status, b, loc, err := c.do(ctx, "PROPFIND", cur, username, password, depth, body)
+		user, pass := username, password
+		if !sameOrigin(rawURL, cur) {
+			user, pass = "", ""
+		}
+		status, b, loc, err := c.do(ctx, "PROPFIND", cur, user, pass, depth, body)
 		if err != nil {
 			return nil, cur, err
 		}

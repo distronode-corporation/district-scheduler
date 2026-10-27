@@ -24,3 +24,20 @@ func MigrateAllowingMissing(h *DB) error {
 	}
 	return nil
 }
+
+// MigrateUpTo applies this handle's embedded migrations up to and including version, for a
+// test that has to put rows into the schema as it stood BEFORE a later migration. Same
+// embedded FS, dialect selection and lock as the boot path.
+func MigrateUpTo(h *DB, version int64) error {
+	gooseMu.Lock()
+	defer gooseMu.Unlock()
+
+	goose.SetBaseFS(migrations)
+	if err := goose.SetDialect(h.dialect.gooseDialect()); err != nil {
+		return fmt.Errorf("set goose dialect: %w", err)
+	}
+	if err := goose.UpTo(h.DB, h.dialect.migrationsDir(), version); err != nil {
+		return fmt.Errorf("run migrations to %d: %w", version, err)
+	}
+	return nil
+}
