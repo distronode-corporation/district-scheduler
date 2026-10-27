@@ -15,7 +15,7 @@
 	let error = $state('');
 	let showCreate = $state(false);
 
-	const bookingEvents = ['booking.created', 'booking.cancelled', 'booking.rescheduled', 'booking.reminder'];
+	const bookingEvents = ['booking.created', 'booking.cancelled', 'booking.rescheduled', 'booking.reminder', 'booking.rsvp'];
 	// Fired only by a recorded meeting, so not offered with MEETING_RECORDING=off. The API
 	// still accepts them, so an existing subscription that lists them keeps saving.
 	const recordingEvents = ['recording.completed', 'transcript.ready', 'notes.ready'];
@@ -36,6 +36,7 @@
 			{ key: 'previous_start_at', label: 'Previous start (reschedule)' },
 			{ key: 'previous_end_at', label: 'Previous end (reschedule)' },
 			{ key: 'hours_before', label: 'Hours before (reminder)' },
+			{ key: 'rsvp_status', label: 'RSVP answer (booking.rsvp)' },
 		] },
 		{ group: 'Payment', fields: [
 			{ key: 'payment_status', label: 'Payment status' },

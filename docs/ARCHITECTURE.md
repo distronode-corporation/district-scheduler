@@ -116,6 +116,14 @@ app you must `pnpm build` in `frontend/` **and** rebuild/restart the Go binary
 
 ## 4. Persistence (SQLite or PostgreSQL) — and the single-connection rule
 
+Public person (`/u/{handle}`) and team (`/team/{slug}`) directories list public,
+active event types by `display_order` ascending, then name and unique slug for
+deterministic ties. The integer defaults to 0, preserving alphabetical order for
+existing types. Owners can set it through event-type create/PATCH or the event
+editor's Directory order field; negative values put an event ahead of the default
+group. It applies wherever the event is listed and is retained on duplication.
+It does not affect the admin event-type list or team member roster ordering.
+
 - `internal/db`: `OpenDB(DATABASE_URL)` picks the engine from the URL scheme. A
   `postgres://` URL selects PostgreSQL; everything else (`sqlite://./rel`,
   `sqlite:///abs`, `:memory:`, a bare path) selects SQLite, so every configuration
@@ -726,6 +734,41 @@ CalDAV without iTIP scheduling (RFC 6638) does **not** auto-invite, so a future 
 provider would want the `.ics` — the rule is "no destination whose provider
 auto-delivers invites," not "no Google."
 
+**Who sends the invite: `invite_delivery` (migration 00076).** Per event type, copied onto
+each booking at creation. `calendar` (default) is everything above: the booker is a guest
+on each host's event and the provider invites them, from the host's own address.
+`calnode` writes the hosts' events **without guests** (`calendarInvitee` returns "", which
+every provider reads as "no attendee", so nobody is emailed from a host's account) and
+always attaches Calnode's `.ics` to the booker's emails, with `ORGANIZER` set to the
+instance sender from Settings → Email (`applyInviteDelivery`, `BookingData.HideHostInInvite`).
+No sender address means no `ORGANIZER` line, never a fallback to the host. Host copies keep
+the host as organizer and, for a `calnode` booking, leave the booker out entirely and go out as
+`METHOD:PUBLISH` (`applyHostInvite`, `ICSWithoutAttendee`), so no host calendar holds them as
+a guest it could re-invite. Reschedule, cancel, reassign and the reconciler read the mode from
+the **booking**, not the event type, so a booking is always updated through the channel
+its invite went out on. Switching an event type to `calnode` requires email to be set up
+(validated on change).
+
+**RSVPs to Calnode-sent invites (migration 00077, `rsvp_inbound.go`).** A booker's
+Yes/No/Maybe is an iTIP `REPLY` their mail client emails to the invite's `ORGANIZER`. Each
+booking's organizer address is fixed at its first send (`bookings.invite_organizer`,
+`bookingInviteOrganizer`), because clients match later updates by UID *and* organizer. With
+RSVP tracking set up (Settings → Email: an address on a Resend receiving domain, the
+webhook signing secret, and a **full-access** Resend API key) that address is private per
+booking, `rsvp+<128-bit token>@domain`. `POST /v1/settings/email/rsvp-webhook`
+(`mailer.EnsureResendInboundWebhook`) creates or reuses the Resend webhook and stores its
+secret; the page falls back to manual steps when it cannot. Resend posts `email.received`
+to `POST /v1/email/inbound/resend`; the handler verifies the Svix signature
+(`mailer.VerifyResendWebhook`), routes by recipient to a confirmed, upcoming booking,
+fetches the message with Resend's own SPF/DKIM/DMARC verdicts (`mailer.FetchReceived`),
+and records the answer on `booking_attendees.rsvp_status` only if Resend verified the From
+domain (DKIM or DMARC pass), the From is the booker, the UID is the booking's, and the
+`REPLY` answers for the booker. The body is sender-written, so its `ATTENDEE` line is never
+trusted on its own. A changed answer fires `booking.rsvp`. It answers 200 to anything it
+will not act on and 5xx only when the fetch failed, so Resend retries exactly what a retry
+can fix. Hosts' calendar events are not updated with the answer: no provider has an "edit
+event" write op yet.
+
 **Adding another provider (Apple/iCloud, CalDAV):** implement `calendar.Provider`,
 register it in `internal/server`, set `InvitesGuests()` correctly (drives the `.ics`
 gate above), and extend `providerMintsPlatform`/`CanAutoGenerate` if it offers a
@@ -899,7 +942,11 @@ as the desired state:
 - **Branding (`branding_settings.go`, `brand_assets.go`, migrations 00029/00050/00075):** instance-wide
   `business_name` + `logo_url` + `banner_url` on the singleton row. Business name is the
   wordmark fallback (defaults to "Calnode") + public-page header; the logo is the email
-  header image + public-page header. `GET/PATCH /v1/settings/branding` (name + opacity
+  header image + public-page header. Booking, manage, person (`/u/{handle}`) and team
+  (`/team/{slug}`) directories share the `businessHeader` partial, using the configured
+  logo height (scaled by `pageLogoHeight`) and opacity, or the business name when no
+  logo is set. Directory avatars remain inside the person/team card.
+  `GET/PATCH /v1/settings/branding` (name + opacity
   settings only); the logo and banner are each an **upload**
   (`POST/DELETE /v1/settings/branding/logo` and `.../banner`, public serve at
   `GET /branding/logo` / `GET /branding/banner`) reusing the avatar pipeline:
@@ -1076,7 +1123,10 @@ Each account can set `booking_accent` in its profile. The default preserves the 
 8. **Public-page CSP is dynamic** — `publicCSP()` (tracking_settings.go) returns the
    strict default and relaxes only when head code-injection is configured (broad
    `https:` or the operator's `tracking_csp_allow`). Don't re-hardcode the CSP on the
-   `book`/`manage` handlers — route it through `publicCSP`.
+   `book`/`manage`/directory handlers — route it through `publicCSP`. Person and
+   team directories render the admin-configured head HTML once, after the shared
+   tracking partial, matching booking/manage pages. Native GA4/GTM tags use the
+   same consent banner on directories, including restoring stored consent.
 9. **`FRAME_ANCESTORS` is the admin SPA's only, and it must stay that way.** Set it
    (space-separated `https://host[:port]` / `'self'`) and the handler under `/admin/`
    sends `Content-Security-Policy: frame-ancestors <list>` so an operator can embed the
