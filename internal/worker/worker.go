@@ -9,8 +9,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"time"
 
+	"github.com/calnode/calnode/internal/crashreport"
 	"github.com/calnode/calnode/internal/db"
 	"github.com/calnode/calnode/internal/i18n"
 	"github.com/calnode/calnode/internal/mailer"
@@ -328,7 +330,21 @@ func (w *Worker) depsFor(workspaceID string) TenantDeps {
 	return d
 }
 
-func (w *Worker) processJob(ctx context.Context, workspaceID, typ, payload string) error {
+// processJob runs one job. A panic in it is recovered, sent to crash reporting
+// (internal/crashreport, a no-op unless SENTRY_DSN is set) and returned as the
+// job's error, so the job takes the normal retry and max-attempts path. Before
+// this, a panic here took the whole process down and the reaper retried the job
+// after the restart, so one bad payload could crash-loop the pod until its
+// attempts ran out.
+func (w *Worker) processJob(ctx context.Context, workspaceID, typ, payload string) (err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			w.logger.Error("worker: job panic recovered", "type", typ, "workspace", workspaceID,
+				"panic", fmt.Sprintf("%v", v), "stack", string(debug.Stack()))
+			crashreport.Recovered(v, map[string]string{"job_type": typ, "workspace": workspaceID})
+			err = crashreport.AsError(v)
+		}
+	}()
 	if fn, ok := w.handlers[typ]; ok {
 		return fn(ctx, workspaceID, payload)
 	}

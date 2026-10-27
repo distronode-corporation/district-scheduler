@@ -1,11 +1,16 @@
 version: 2
 
-# gomod and npm are deliberately absent here: those bumps are made upstream first and
-# arrive on this fork with the sync, so a fork-side bump would edit go.mod/go.sum and
-# frontend/pnpm-lock.yaml — files shared with upstream — and drift them against it.
-# What is left is what the fork actually owns: its own workflow pins and its own image.
+# github-actions and docker get version updates: the workflow pins and the image are what
+# the fork owns outright. gomod and npm get SECURITY updates only (decided 2026-10-21):
+# their files (go.mod/go.sum, frontend/pnpm-lock.yaml) are shared with upstream, so routine
+# bumps arrive with the upstream sync, while a fix for a published advisory is worth taking
+# here without waiting for it. `open-pull-requests-limit: 0` is GitHub's documented switch
+# for that: it stops version-update PRs for the ecosystem and does not touch security-update
+# PRs, which have their own fixed limit. Security updates also need "Dependabot security
+# updates" on in the repository settings; this file only scopes them.
 # `cooldown` holds a version bump back until the release is a week old, so a compromised
 # publish that is yanked within days never reaches a PR. Security updates are not delayed.
+# It is kept on gomod and npm too, so lifting their limit later cannot skip it.
 updates:
   - package-ecosystem: github-actions
     directory: /
@@ -26,3 +31,23 @@ updates:
       # the next even (LTS) line, with the build proven first.
       - dependency-name: node
         update-types: ["version-update:semver-major"]
+
+  # Security updates only. `schedule` is required on every entry; it times version
+  # updates, of which there are none here.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    cooldown:
+      default-days: 7
+
+  # The frontend is a pnpm project; Dependabot's "npm" ecosystem reads and rewrites
+  # frontend/pnpm-lock.yaml. Security updates only, as for gomod.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    cooldown:
+      default-days: 7
