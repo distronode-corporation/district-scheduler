@@ -1,4 +1,12 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/distronode-logo-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset=".github/assets/distronode-logo-light.png">
+  <img alt="Distronode" src=".github/assets/distronode-logo-light.png" width="220">
+</picture>
+
 # District Scheduler
+
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/distronode-corporation/district-scheduler/badge)](https://scorecard.dev/viewer/?uri=github.com/distronode-corporation/district-scheduler)
 
 **A fork of [Calnode](https://github.com/Calnode/calnode)**, the Apache-2.0 scheduling engine,
 run by Distronode Corporation as the scheduling engine behind every
@@ -8,6 +16,10 @@ A lean, self-hostable scheduling engine that lives in your AI stack: a Calendly-
 booking app with first-party video meetings built in, shipped as one Go binary that serves
 its own public booking pages and its own admin console. It is API-first, webhook-native,
 and built for a world where agents do the booking. Nothing is paywalled.
+
+![A District Scheduler booking page: the event, a month calendar and the day's open times](docs/images/booking-page.png)
+
+*A booking page in a fictional review workspace.*
 
 Meeting recording and the AI notetaker are upstream Calnode features. This fork switches
 them off under `MULTI_TENANT` (the `MEETING_RECORDING` switch below), which is how District
@@ -42,7 +54,7 @@ kept as upstream's so the fork syncs cleanly. See [NOTICE](NOTICE) for attributi
 
 `Apache-2.0` · `Go 1.26+ (built with 1.27.3)` · `PostgreSQL 17 / SQLite`
 
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/distronode-corporation/district-scheduler/badge)](https://scorecard.dev/viewer/?uri=github.com/distronode-corporation/district-scheduler) · [Audit it yourself](AUDIT.md)
+[Audit it yourself](AUDIT.md)
 
 **Status:** in production behind District AI. Shipped as a container image by digest
 (`:edge` and `:sha-<short>` on GHCR); there are no GitHub releases, by design (see
