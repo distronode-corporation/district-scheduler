@@ -6,7 +6,7 @@
 # this file, and pinning a single-arch digest would break the other arch at pull time.
 # Get them with `crane digest <image>`; `docker inspect` on a pulled image gives the
 # single-arch digest instead.
-FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS frontend-builder
+FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS frontend-builder
 
 # Pin pnpm to the version in package.json's `packageManager` field (not @latest)
 # so CI builds are reproducible and match the committed lockfile.
