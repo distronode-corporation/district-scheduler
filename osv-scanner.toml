@@ -1,0 +1,13 @@
+# osv-scanner reads the osv-scanner.toml in the directory of each lockfile it scans, so
+# this file covers go.mod and frontend/osv-scanner.toml covers frontend/pnpm-lock.yaml.
+# Every entry carries its reason and expires, so it is read again (CHANGELOG, Security).
+
+[[IgnoredVulns]]
+id = "GHSA-q7pp-wcgr-pffx"
+ignoreUntil = 2027-02-04
+reason = "imaging TIFF crash: uploads are sniffed and only JPEG, PNG, GIF and WebP reach a decoder (internal/handler/image_upload.go); no fixed release"
+
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+ignoreUntil = 2027-02-04
+reason = "x/crypto/openpgp is never imported (only x/crypto/argon2 is) and govulncheck reports no reachable symbol; the fix is not in a tagged release"

@@ -187,6 +187,17 @@ both dialects.
   none).
 
 ### Security
+- **Upstream's NethServer 8 module (`packaging/ns8/`) is removed.** The 0.11 sync kept it as
+  inert source, but its Vue 2 / Vue CLI 4 settings UI brought a 1,321-package `yarn.lock`
+  that this fork never installs or builds (neither Dockerfile copies it, no workflow runs
+  it) and that carried 85 of the 90 advisories OpenSSF Scorecard counted. Upstream merges
+  touching it are resolved with `git rm -r packaging/ns8`.
+- **Scanner residuals recorded in `osv-scanner.toml`**, each with its reason and an
+  `ignoreUntil` 90 days out so it is read again: GHSA-q7pp-wcgr-pffx (`imaging`, TIFF
+  only; uploads are sniffed and anything but JPEG, PNG, GIF or WebP is refused before a
+  decoder runs), GO-2026-5932 (`x/crypto/openpgp`, never imported; govulncheck reports no
+  reachable symbol) at the root, and GHSA-gcqx-w48m-w2h4 (`deepmerge` 4.3.1, reached only
+  through `@sveltejs/vite-plugin-svelte` at build time; no fixed release) in `frontend/`.
 - **Go toolchain 1.27.3** (`toolchain` in `go.mod`, and the `golang:1.27.3-alpine` builder
   in both Dockerfiles, pinned by digest). Go 1.27.2's `crypto/x509` carries GO-2026-6809
   (compromised intermediate certificates are not distrusted), which `govulncheck` reports
