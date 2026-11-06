@@ -246,14 +246,9 @@ at an unconditional `"zoom"`.
 
 ## Distribution packaging (packaging/)
 
-- One channel per directory: `packaging/ns8/` is the NethServer 8 module
-  (imageroot actions, systemd unit, Vue settings UI, robot tests). Future
-  channels (Umbrel, Coolify, TrueNAS, etc.) get siblings, never a mega-PR.
-- The NS8 module is a thin wrapper around the published app image, built upstream by
-  `.github/workflows/ns8-module.yml` with the same tag scheme as
-  `docker-publish.yml`. Release tags pin module and app to the same version.
-  ⚠️ This fork deletes that workflow and `test-module.yml` (CHANGELOG, upstream sync
-  2026-10-16), so `packaging/ns8/` is inherited source that nothing here builds.
-- The app image ref lives in the `org.nethserver.images` label; at install
-  the cluster exposes it as `${CALNODE_IMAGE}` and the unit + configure read
-  it from there. Never hardcode an app tag in `packaging/ns8/`.
+- This fork carries no `packaging/` directory. Upstream's NethServer 8 module
+  (`packaging/ns8/`) and its workflows (`ns8-module.yml`, `test-module.yml`) are deleted
+  here: nothing in this fork builds or publishes an NS8 module, and its Vue 2 settings UI
+  lockfile was 85 of the scanner's 90 findings. ⚠️ An upstream merge that touches
+  `packaging/ns8/` shows up as a modify/delete conflict; resolve it with
+  `git rm -r packaging/ns8` (CHANGELOG, "Not taken").

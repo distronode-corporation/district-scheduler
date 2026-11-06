@@ -1,0 +1,6 @@
+# Read by osv-scanner for pnpm-lock.yaml in this directory (see ../osv-scanner.toml).
+
+[[IgnoredVulns]]
+id = "GHSA-gcqx-w48m-w2h4"
+ignoreUntil = 2027-02-04
+reason = "deepmerge 4.3.1 is reached only through @sveltejs/vite-plugin-svelte during the build, never in the shipped bundle; no fixed release"
