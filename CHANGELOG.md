@@ -198,8 +198,12 @@ both dialects.
   decoder runs), GO-2026-5932 (`x/crypto/openpgp`, never imported; govulncheck reports no
   reachable symbol) at the root, and GHSA-gcqx-w48m-w2h4 (`deepmerge` 4.3.1, reached only
   through `@sveltejs/vite-plugin-svelte` at build time; no fixed release) in `frontend/`.
-- **Go toolchain 1.27.3** (`toolchain` in `go.mod`, and the `golang:1.27.3-alpine` builder
-  in both Dockerfiles, pinned by digest). Go 1.27.2's `crypto/x509` carries GO-2026-6809
+- **Go toolchain 1.27.4** (`toolchain` in `go.mod`, and the `golang:1.27.4-alpine` builder
+  in both Dockerfiles, pinned by digest). Go 1.27.3's `net/http` carries GO-2026-6859 (an
+  HTTP/1 server crash from a `MaxBytesReader` header race), which `govulncheck` reports as
+  reachable from this module (60 traces, among them `handler.Handler.CreateBooking`); it is
+  fixed in 1.27.4. No code or dependency changed.
+- **Go toolchain 1.27.3** (superseded by 1.27.4 above). Go 1.27.2's `crypto/x509` carries GO-2026-6809
   (compromised intermediate certificates are not distrusted), which `govulncheck` reports
   as reachable through `mailer.SMTP.Send` (the implicit-TLS dial to the operator's SMTP
   server verifies its certificate chain); it is fixed in 1.27.3. No code or dependency
