@@ -492,3 +492,136 @@ func TestWorker_noReminderWebhookWhenTheEmailIsSuppressed(t *testing.T) {
 		t.Errorf("deliveries = %d; want 0 when no reminder was sent", n)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// reminder.send: branding reaches the email as absolute URLs (upstream #167)
+// ---------------------------------------------------------------------------
+
+// seedBrandedReminder stores a logo and a banner (with the workspace_assets rows
+// db.LogoURLSQL and db.BannerURLSQL require, migration 00075) and one due reminder.
+func seedBrandedReminder(t *testing.T, database *db.DB, suffix string) {
+	t.Helper()
+	ctx := context.Background()
+	pastRunAt := time.Now().UTC().Add(-time.Second).Format(time.RFC3339)
+	bookingStart := time.Now().UTC().Add(25 * time.Hour).Format(time.RFC3339)
+
+	if _, err := database.ExecContext(ctx, `
+		UPDATE server_settings SET
+		  business_name = 'Acme Scheduling',
+		  logo_url = '/branding/logo?v=42',
+		  logo_height = 40,
+		  logo_opacity = 80,
+		  banner_url = '/branding/banner?v=43',
+		  banner_opacity = 60
+		WHERE id = 1`); err != nil {
+		t.Fatalf("seed branding: %v", err)
+	}
+	for _, kind := range []string{"logo", "banner"} {
+		if _, err := database.ExecContext(ctx,
+			`INSERT INTO workspace_assets (kind, owner_id, content_type, data, sha256) VALUES (?, '', 'image/png', ?, ?)`,
+			kind, []byte{0x89, 'P', 'N', 'G'}, strings.Repeat("0", 64)); err != nil {
+			t.Fatalf("seed %s asset: %v", kind, err)
+		}
+	}
+	mustExec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := database.ExecContext(ctx, q, args...); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	mustExec(`INSERT INTO event_types (id, user_id, slug, name, duration_minutes)
+		 VALUES (?,'host-01',?,'Branded Meeting',30)`, "et-b"+suffix, "rem-brand-"+suffix)
+	mustExec(`INSERT INTO bookings (id, event_type_id, host_id, start_at, end_at, status)
+		 VALUES (?,?,'host-01',?,?,'confirmed')`, "bk-b"+suffix, "et-b"+suffix, bookingStart, bookingStart)
+	mustExec(`INSERT INTO booking_attendees (id, booking_id, name, email, iana_timezone, is_organizer)
+		 VALUES (?,?,'Alice','alice@example.com','UTC',1)`, "att-b"+suffix, "bk-b"+suffix)
+	mustExec(`INSERT INTO jobs (id, type, payload, run_at, status, attempts, max_attempts)
+		VALUES (?,'reminder.send',?,?,'pending',0,3)`,
+		"job-b"+suffix, `{"booking_id":"bk-b`+suffix+`"}`, pastRunAt)
+}
+
+// Reminder emails skipped the handler's applyBranding: they read logo_url straight
+// from server_settings and never loaded the banner. The stored value is a relative
+// served path, so the rendered <img src="/branding/logo?..."> was unresolvable in a
+// mail client and the logo silently disappeared.
+func TestWorker_reminderEmailCarriesAbsoluteBranding(t *testing.T) {
+	database, svc := setup(t)
+	seedBrandedReminder(t, database, "1")
+
+	m := &captureMailer{}
+	w := worker.New(database, svc, slog.Default(),
+		worker.WithMailer(m),
+		worker.WithPublicURL("https://book.example.com"),
+		worker.WithHTTPClient(&http.Client{}))
+	w.Poll(context.Background())
+
+	if len(m.sent) != 1 {
+		t.Fatalf("sent %d emails; want 1", len(m.sent))
+	}
+	html := m.sent[0].HTML
+	for _, want := range []string{
+		`src="https://book.example.com/branding/logo?v=42"`,
+		`src="https://book.example.com/branding/banner?v=43"`,
+		"Acme Scheduling",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("reminder HTML missing %q", want)
+		}
+	}
+	if strings.Contains(html, `src="/branding/`) {
+		t.Error("reminder HTML still contains a relative branding asset path")
+	}
+}
+
+// Multi-tenant, the claimed job's workspace host wins over the process-wide URL
+// (which is the identity host there), and a workspace whose host cannot be resolved
+// gets the default District header rather than an <img> pointing at no tenant.
+func TestWorker_reminderBrandingUsesTheJobWorkspaceHost(t *testing.T) {
+	for _, tc := range []struct {
+		name, host string
+		want       []string
+	}{
+		{"resolved host", "https://book.acme.example", []string{
+			`src="https://book.acme.example/branding/logo?v=42"`,
+			`src="https://book.acme.example/branding/banner?v=43"`,
+		}},
+		{"unresolved host", "", []string{`alt="Distronode"`}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			database, svc := setup(t)
+			seedBrandedReminder(t, database, "2")
+
+			var asked []string
+			m := &captureMailer{}
+			w := worker.New(database, svc, slog.Default(),
+				worker.WithMailer(m),
+				worker.WithPublicURL("https://app.identity.example"),
+				worker.WithTenantResolver(func(workspaceID string) worker.TenantDeps {
+					return worker.TenantDeps{PublicURL: func(context.Context) string {
+						asked = append(asked, workspaceID)
+						return tc.host
+					}}
+				}),
+				worker.WithHTTPClient(&http.Client{}))
+			w.Poll(context.Background())
+
+			if len(m.sent) != 1 {
+				t.Fatalf("sent %d emails; want 1", len(m.sent))
+			}
+			if len(asked) != 1 || asked[0] != db.DefaultWorkspaceID {
+				t.Errorf("PublicURL asked for %v; want the job's workspace once", asked)
+			}
+			html := m.sent[0].HTML
+			for _, want := range tc.want {
+				if !strings.Contains(html, want) {
+					t.Errorf("reminder HTML missing %q", want)
+				}
+			}
+			for _, never := range []string{`src="/branding/`, "app.identity.example"} {
+				if strings.Contains(html, never) {
+					t.Errorf("reminder HTML contains %q", never)
+				}
+			}
+		})
+	}
+}

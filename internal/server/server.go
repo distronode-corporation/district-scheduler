@@ -184,11 +184,21 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *db.DB, logger *sl
 		// ⛔ The PLATFORM handle. jobs is a tenant table, so a worker holding the
 		// application handle claims nothing on a multi-tenant instance: reminders and
 		// webhook deliveries would simply never fire, with no error anywhere.
+		// Reminder emails need the booker-facing host to make branding image paths
+		// absolute (upstream a2bdcf1): single-tenant it mirrors handler.publicURL()'s
+		// PUBLIC_BASE_URL -> BASE_URL fallback; multi-tenant the resolver answers with
+		// the job's own workspace host.
+		publicURL := cfg.PublicBaseURL
+		if publicURL == "" {
+			publicURL = cfg.BaseURL
+		}
 		wrk := worker.New(db.Platform(), whs, logger,
 			worker.WithMailer(live),
+			worker.WithPublicURL(publicURL),
 			worker.WithTenantResolver(func(workspaceID string) worker.TenantDeps {
 				bound, m, wh := h.TenantRuntime(workspaceID)
-				return worker.TenantDeps{DB: bound, Mailer: m, Webhook: wh}
+				return worker.TenantDeps{DB: bound, Mailer: m, Webhook: wh,
+					PublicURL: func(ctx context.Context) string { return h.JobPublicURL(ctx, workspaceID) }}
 			}))
 		// Notetaker jobs live in the handler package (they need LLM/S3/encKey).
 		wrk.RegisterHandler("notetaker.transcribe", h.JobNotetakerTranscribe)
