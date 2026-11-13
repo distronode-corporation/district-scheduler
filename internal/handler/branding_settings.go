@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/calnode/calnode/internal/db"
+	"github.com/calnode/calnode/internal/branding"
 	"github.com/calnode/calnode/internal/dbtime"
 	"github.com/calnode/calnode/internal/i18n"
 	"github.com/calnode/calnode/internal/mailer"
@@ -24,50 +24,15 @@ const logoServePath = "/branding/logo"
 // bannerServePath is the served path for the instance banner image.
 const bannerServePath = "/branding/banner"
 
-// brandingSettings is the instance-wide brand identity used in emails and on the
-// public booking/manage/directory pages.
-type brandingSettings struct {
-	BusinessName  string
-	LogoURL       string // served path (relative), e.g. "/branding/logo?v=123"; empty = no logo
-	LogoHeight    int    // email logo height in px (pages scale up); see pageLogoHeight
-	LogoOpacity   int    // 20–100; CSS opacity for a subtle logo. 100 = fully opaque
-	BannerURL     string // served path (relative), e.g. "/branding/banner?v=123"; empty = no banner
-	BannerOpacity int    // 20–100; CSS opacity for the banner. 100 = fully opaque
-	PrivacyURL    string // operator's Privacy Policy URL (absolute http[s]); "" = hidden
-	TermsURL      string // operator's Terms URL (absolute http[s]); "" = hidden
-	// FallbackLocale is what a visitor sees when their browser doesn't ask for any
-	// locale Calnode supports — defaults to "en". See i18n.ResolveWithFallback.
-	FallbackLocale string
-}
+// brandingSettings is the workspace's brand identity. The definition and the
+// loader live in internal/branding so the background worker brands reminder
+// emails the same way (upstream a2bdcf1); this alias keeps the handler's existing
+// references unchanged.
+type brandingSettings = branding.Settings
 
 // loadBranding reads the brand identity from the singleton settings row.
 func (h *Handler) loadBranding(ctx context.Context) brandingSettings {
-	var b brandingSettings
-	// The two image URLs are read through db.LogoURLSQL and db.BannerURLSQL, so one that
-	// names an image this workspace does not have reads as unset rather than as a broken
-	// <img>.
-	const query = `
-		SELECT COALESCE(business_name,''), ` + db.LogoURLSQL + `,
-		       COALESCE(logo_height,28), COALESCE(logo_opacity,100),
-		       ` + db.BannerURLSQL + `, COALESCE(banner_opacity,100),
-		       COALESCE(privacy_url,''), COALESCE(terms_url,''),
-		       COALESCE(fallback_locale,'en')
-		FROM server_settings WHERE id = 1`
-	_ = h.db.QueryRowContext(ctx, query).Scan(&b.BusinessName, &b.LogoURL, &b.LogoHeight, &b.LogoOpacity,
-		&b.BannerURL, &b.BannerOpacity, &b.PrivacyURL, &b.TermsURL, &b.FallbackLocale)
-	if b.LogoHeight <= 0 {
-		b.LogoHeight = 28
-	}
-	if b.LogoOpacity <= 0 || b.LogoOpacity > 100 {
-		b.LogoOpacity = 100
-	}
-	if b.BannerOpacity <= 0 || b.BannerOpacity > 100 {
-		b.BannerOpacity = 100
-	}
-	if i18n.Get(b.FallbackLocale) == nil {
-		b.FallbackLocale = i18n.DefaultCode
-	}
-	return b
+	return branding.Load(ctx, h.db)
 }
 
 // pageLogoHeight scales the email logo height up ~1.3× for the roomier public
@@ -105,25 +70,12 @@ func opacityCSS(pct int) string {
 }
 
 // applyBranding stamps the instance brand identity onto booking email data so
-// every outbound email carries the configured wordmark/logo. The logo is stored
-// as a relative path; emails need an absolute URL, so it's prefixed with the
-// public base URL here. Cheap single-row read; called once per send batch.
+// every outbound email carries the configured wordmark/logo/banner. Both images
+// are stored as relative paths; emails need absolute URLs, so branding.ApplyTo
+// prefixes them with this workspace's public base URL. Cheap single-row read;
+// called once per send batch.
 func (h *Handler) applyBranding(ctx context.Context, d *mailer.BookingData) {
-	b := h.loadBranding(ctx)
-	d.BrandName = b.BusinessName
-	d.LogoHeight = b.LogoHeight
-	d.LogoOpacity = b.LogoOpacity
-	if strings.HasPrefix(b.LogoURL, "/") {
-		d.LogoURL = h.publicURL() + b.LogoURL
-	} else {
-		d.LogoURL = b.LogoURL
-	}
-	d.BannerOpacity = b.BannerOpacity
-	if strings.HasPrefix(b.BannerURL, "/") {
-		d.BannerURL = h.publicURL() + b.BannerURL
-	} else {
-		d.BannerURL = b.BannerURL
-	}
+	h.loadBranding(ctx).ApplyTo(d, h.publicURL())
 }
 
 // GetBranding handles GET /v1/settings/branding (admin).

@@ -72,6 +72,35 @@ Entries below are a mixture, and which is which decides where a patch should go:
 [#56]: https://github.com/Calnode/calnode/pull/56
 [#57]: https://github.com/Calnode/calnode/pull/57
 
+### Upstream picks, 2026-11
+
+Nine fixes from upstream v0.11.2 to v0.14.0, taken as commits (`git cherry-pick -x`,
+so each records its upstream SHA) rather than by a sync merge, which waits on the
+`ADMIN_SPA` decision. No migration is involved. Not taken: admins editing other
+members' event types (`bfa5a5e` and its follow-ups), by decision.
+
+- **Slots align to the host's local wall clock** (`b2857fa`), so hosts at a non-whole-hour
+  offset get 09:00 rather than 09:30, and 35- or 50-minute intervals no longer drift.
+- **Microsoft free/busy ignores free, cancelled and declined entries** (`d6c7bc3`).
+- **Reassigning a booking moves the primary seat inside the transaction** (`e7e5b91`).
+  `POST /v1/bookings/{id}/reassign` keeps its request and response; it newly answers 409
+  when the chosen host already attends the booking.
+- **Host calendars are checked concurrently at booking time** (`1e155a3`). Upstream's
+  semantics come with it: an unreadable round-robin candidate is skipped and an
+  unreadable optional host is left off, while required and fixed/collective hosts still
+  fail closed.
+- **SMTP messages carry `Date` and `Message-ID`** (`7e679f2`, `e334f89`).
+- **`/mcp` is served statelessly** (hand port of `e0a942f`), so `server/discover`
+  advertises protocol 2026-07-28 and ChatGPT-style connectors can discover actions. The
+  per-workspace server factory now runs on every request; `GET` and `DELETE /mcp`
+  answer 405.
+- **Reminder emails use absolute logo and banner URLs** (fork port of `a2bdcf1`), built
+  from the job's own workspace host. A host that cannot be resolved leaves the images
+  out rather than pointing at the identity host.
+- **The booking page and widget cap the host face stack at three plus a "+N" chip**
+  (`86c983b`; the chip's colours are tokens here).
+- **`@sveltejs/kit` 2.70.4** (`6091935`, lockfile regenerated with pnpm 10.32.1).
+
 ### Upstream sync, 2026-09-21
 
 `upstream/main` at `2c1c1e3f` merged (not rebased) onto `district`. What it brought, and

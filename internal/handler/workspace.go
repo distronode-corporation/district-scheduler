@@ -158,6 +158,29 @@ func (h *Handler) TenantRuntime(workspaceID string) (*db.DB, mailer.Mailer, *web
 	return scoped.db, scoped.getMailer(), scoped.webhookSvc
 }
 
+// JobPublicURL is publicURL for a workspace named by a background job: the
+// booker-facing base URL its emails link to and load their branding images from.
+//
+// workspaceForJob carries only the id, so on a multi-tenant instance the public
+// host is read here from the workspaces row. A workspace that cannot be read (or
+// has no public host) answers "", never the identity host, whose /branding/ paths
+// are no tenant's: the caller then leaves relative images out instead of pointing
+// a mail client at another host. Single-tenant, it is PUBLIC_BASE_URL or BASE_URL.
+func (h *Handler) JobPublicURL(ctx context.Context, workspaceID string) string {
+	if !h.multiTenant || workspaceID == "" {
+		return h.publicURL()
+	}
+	ws, err := h.workspaceByID(ctx, workspaceID)
+	if err != nil {
+		h.logger.WarnContext(ctx, "job: resolve workspace public host", "workspace", workspaceID, "error", err)
+		return ""
+	}
+	if ws.PublicHost == "" {
+		return ""
+	}
+	return h.forWorkspace(ws).publicURL()
+}
+
 // Resolver decides which workspace a request belongs to. The two that exist are
 // HostWorkspace and CredentialWorkspace; a route picks one at registration.
 type Resolver func(*Handler, *http.Request) (*Workspace, error)

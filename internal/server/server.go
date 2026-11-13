@@ -184,11 +184,21 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *db.DB, logger *sl
 		// ⛔ The PLATFORM handle. jobs is a tenant table, so a worker holding the
 		// application handle claims nothing on a multi-tenant instance: reminders and
 		// webhook deliveries would simply never fire, with no error anywhere.
+		// Reminder emails need the booker-facing host to make branding image paths
+		// absolute (upstream a2bdcf1): single-tenant it mirrors handler.publicURL()'s
+		// PUBLIC_BASE_URL -> BASE_URL fallback; multi-tenant the resolver answers with
+		// the job's own workspace host.
+		publicURL := cfg.PublicBaseURL
+		if publicURL == "" {
+			publicURL = cfg.BaseURL
+		}
 		wrk := worker.New(db.Platform(), whs, logger,
 			worker.WithMailer(live),
+			worker.WithPublicURL(publicURL),
 			worker.WithTenantResolver(func(workspaceID string) worker.TenantDeps {
 				bound, m, wh := h.TenantRuntime(workspaceID)
-				return worker.TenantDeps{DB: bound, Mailer: m, Webhook: wh}
+				return worker.TenantDeps{DB: bound, Mailer: m, Webhook: wh,
+					PublicURL: func(ctx context.Context) string { return h.JobPublicURL(ctx, workspaceID) }}
 			}))
 		// Notetaker jobs live in the handler package (they need LLM/S3/encKey).
 		wrk.RegisterHandler("notetaker.transcribe", h.JobNotetakerTranscribe)
@@ -457,7 +467,9 @@ func New(ctx context.Context, cfg *config.Config, db *db.DB, logger *slog.Logger
 	// handler, so a shared instance would run every tenant's tool calls on
 	// whichever handler built it. MCPCallerMiddleware below has resolved the
 	// caller's workspace into the request context by the time the factory runs.
-	mcpHTTP := mcp.NewStreamableHTTPHandler(h.MCPServerForRequest, nil)
+	// The transport is stateless (newMCPStreamableHandler), so the factory runs on
+	// every request.
+	mcpHTTP := newMCPStreamableHandler(h.MCPServerForRequest)
 	mcpAuth := auth.RequireBearerToken(h.VerifyMCPBearer, &auth.RequireBearerTokenOptions{
 		ResourceMetadataURL: cfg.BaseURL + "/.well-known/oauth-protected-resource",
 	})
@@ -835,6 +847,26 @@ func New(ctx context.Context, cfg *config.Config, db *db.DB, logger *slog.Logger
 	// calling through, so a handler with its own opinion about one of these keys still wins.
 	// Recover (upstream) sits inside SecurityHeaders, so a recovered panic's 500 carries them too.
 	return TrustClientIP(trustedProxies)(RequestID(Logging(logger, SecurityHeaders(Recover(logger, SameOriginCheck(mux)))))), drain
+}
+
+// newMCPStreamableHandler builds the Streamable HTTP transport for /mcp (upstream
+// e0a942f, #170/#171, ported onto the fork's per-workspace server factory).
+//
+// Stateless is deliberate. The go-sdk only advertises and serves protocol 2026-07-28
+// (SEP-2575's server/discover flow) on a stateless transport: on a stateful one
+// StreamableServerTransport.SupportsProtocolVersion filters every version from
+// 2026-07-28 on, so /mcp answered discovery with a list ending at 2025-11-25.
+// ChatGPT's connector flow asks for 2026-07-28 and does not fall back, so its action
+// discovery failed. Clients that negotiate down (MCP Inspector, plain SDK clients)
+// were unaffected.
+//
+// No MCP session state is held here: each request is authenticated on its own by
+// RequireBearerToken + MCPCallerMiddleware, no tool sends server-to-client requests
+// or notifications, and getServer (MCPServerForRequest) now resolves the caller's
+// workspace server on every request rather than once per session. The trade-off is
+// that GET and DELETE /mcp answer 405, since there is no session to stream or end.
+func newMCPStreamableHandler(getServer func(*http.Request) *mcp.Server) http.Handler {
+	return mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{Stateless: true})
 }
 
 // seedSMTPToDB writes env-var SMTP settings into the DB on first boot so they

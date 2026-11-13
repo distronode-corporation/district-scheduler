@@ -12,6 +12,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/calnode/calnode/internal/branding"
 	"github.com/calnode/calnode/internal/crashreport"
 	"github.com/calnode/calnode/internal/db"
 	"github.com/calnode/calnode/internal/i18n"
@@ -41,6 +42,10 @@ type TenantDeps struct {
 	DB      *db.DB
 	Mailer  mailer.Mailer
 	Webhook *webhook.Service
+	// PublicURL resolves the workspace's booker-facing base URL, which reminder
+	// emails load their branding images from. A func rather than a value so the
+	// lookup runs only for a job that sends email. Nil falls back to WithPublicURL.
+	PublicURL func(context.Context) string
 }
 
 // Worker polls the jobs table and processes pending jobs (webhooks, reminders).
@@ -52,6 +57,7 @@ type Worker struct {
 	mailer     mailer.Mailer
 	logger     *slog.Logger
 	httpClient *http.Client
+	publicURL  string                                                 // single-tenant booker-facing base URL; see WithPublicURL
 	handlers   map[string]func(context.Context, string, string) error // custom job types; (workspaceID, payload)
 	tenant     func(workspaceID string) TenantDeps
 	done       chan struct{}
@@ -77,6 +83,15 @@ func WithHTTPClient(c *http.Client) func(*Worker) {
 // mode it is only the fallback: WithTenantResolver's mailer wins.
 func WithMailer(m mailer.Mailer) func(*Worker) {
 	return func(w *Worker) { w.mailer = m }
+}
+
+// WithPublicURL sets the booker-facing base URL used to turn stored relative
+// branding image paths into absolute URLs in reminder emails (upstream a2bdcf1).
+// server.New passes what handler.publicURL() resolves single-tenant
+// (PUBLIC_BASE_URL, falling back to BASE_URL). Multi-tenant, each workspace has
+// its own public host, so TenantDeps.PublicURL wins.
+func WithPublicURL(url string) func(*Worker) {
+	return func(w *Worker) { w.publicURL = url }
 }
 
 // WithTenantResolver supplies the per-workspace dependencies a claimed job is
@@ -439,11 +454,17 @@ func (w *Worker) sendReminder(ctx context.Context, deps TenantDeps, payload stri
 	}
 	d.Locale = i18n.Get(locale)
 
-	// Brand the reminder email with the instance wordmark/logo. db.LogoURLSQL reads a logo
-	// URL with no stored image behind it as unset, as the handler's loadBranding does.
-	_ = deps.DB.QueryRowContext(ctx, `
-		SELECT COALESCE(business_name,''), `+db.LogoURLSQL+`
-		FROM server_settings WHERE id = 1`).Scan(&d.BrandName, &d.LogoURL)
+	// Brand the reminder email with the workspace's wordmark, logo and banner. This used
+	// to read business_name and logo_url straight from server_settings, which skipped
+	// the relative-to-absolute step the handler's applyBranding performs and never
+	// loaded the banner, so mail clients showed a broken <img src="/branding/logo?...">
+	// (upstream #167). internal/branding is now the one place that does this, on the
+	// job's bound handle and with the job's workspace host.
+	baseURL := w.publicURL
+	if deps.PublicURL != nil {
+		baseURL = deps.PublicURL(ctx)
+	}
+	branding.Load(ctx, deps.DB).ApplyTo(&d, baseURL)
 
 	if err := mailer.SendReminder(ctx, deps.Mailer, d); err != nil {
 		return fmt.Errorf("worker: reminder: send: %w", err)
