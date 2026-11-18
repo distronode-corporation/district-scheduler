@@ -537,13 +537,23 @@ func (h *Handler) ownCalendarEvents(ctx context.Context, userID, from, to string
 // Returns (from, to, ok). ok=false means the params were malformed.
 // maxFutureDays=0 is treated as 365 (no configured limit). The resolved
 // cap is always enforced on the to= param to prevent CPU-DoS via far-future dates.
+//
+// The work slot generation does is proportional to the number of days in the range, so
+// the range is bounded on both sides whatever the caller or the event type asks for: the
+// start is never earlier than yesterday (UTC; a booker west of UTC may still be on it),
+// since every slot before now is discarded anyway, and the horizon never exceeds
+// slotHorizonMaxDays, however large the stored max_future_days is.
 func parseDateRangeStr(fromStr, toStr string, now time.Time, maxFutureDays int) (time.Time, time.Time, bool) {
 	today := now.UTC().Truncate(24 * time.Hour)
+	floor := today.AddDate(0, 0, -1)
 
 	// Mirror generate.go: 0 means "no configured limit"; use 365 as the cap.
 	effectiveMax := maxFutureDays
 	if effectiveMax <= 0 {
 		effectiveMax = 365
+	}
+	if effectiveMax > slotHorizonMaxDays {
+		effectiveMax = slotHorizonMaxDays
 	}
 	cap := today.AddDate(0, 0, effectiveMax)
 
@@ -573,5 +583,17 @@ func parseDateRangeStr(fromStr, toStr string, now time.Time, maxFutureDays int) 
 	if dateTo.Before(dateFrom) {
 		return time.Time{}, time.Time{}, false
 	}
+	// After the order check, so a reversed range is still malformed. A range wholly in
+	// the past collapses to the floor day, which yields no slots, as it always did.
+	if dateFrom.Before(floor) {
+		dateFrom = floor
+	}
+	if dateTo.Before(dateFrom) {
+		dateTo = dateFrom
+	}
 	return dateFrom, dateTo, true
 }
+
+// slotHorizonMaxDays bounds how far ahead any slot request walks, independently of the
+// event type's own max_future_days.
+const slotHorizonMaxDays = 730
