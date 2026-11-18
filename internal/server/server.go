@@ -46,6 +46,8 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *db.DB, logger *sl
 	h.SetMultiTenant(cfg.MultiTenant)
 	h.SetBaseURL(cfg.BaseURL)
 	h.SetPublicBaseURL(cfg.PublicBaseURL)
+	// Independent of which sign-in providers are configured below.
+	h.SetSecureCookie(cfg.CookieSecure)
 	h.SetEncKey(cfg.EncryptionKey)
 	h.SetSSOSecret(cfg.SSOSharedSecret)
 	// ADMIN_SPA is a multi-tenant switch: a single-tenant instance has no other admin

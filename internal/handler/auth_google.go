@@ -35,6 +35,16 @@ func (h *Handler) SetGoogleAuth(clientID, clientSecret, redirectURL string, secu
 	h.authMu.Unlock()
 }
 
+// SetSecureCookie sets whether every cookie this handler issues (the session cookie
+// above all) carries Secure. It is applied from COOKIE_SECURE at construction, whatever
+// sign-in providers are configured: SetGoogleAuth and SetMicrosoftAuth also set it, but
+// an instance with neither must not fall back to the false zero value.
+func (h *Handler) SetSecureCookie(secure bool) {
+	h.authMu.Lock()
+	h.secureCookie = secure
+	h.authMu.Unlock()
+}
+
 // LoginGoogle redirects the user to Google's OAuth consent screen.
 // GET /v1/auth/login
 func (h *Handler) LoginGoogle(w http.ResponseWriter, r *http.Request) {
