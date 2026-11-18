@@ -104,19 +104,21 @@ type microsoftUserInfo struct {
 	UserPrincipalName string `json:"userPrincipalName"`
 }
 
-// fetchMicrosoftEmail reads the signed-in account's email from Graph /me, preferring
-// the routable `mail` and falling back to the userPrincipalName. Lowercased to match
-// stored account emails.
+// fetchMicrosoftEmail reads the signed-in account's email from Graph /me. Lowercased to
+// match stored account emails.
 //
-// Unlike Google's userinfo endpoint (see auth_google.go), Graph /me has no self-asserted
-// "verified" boolean to check — but the trust model differs: Entra ID enforces domain
-// verification at the tenant level (an admin cannot set a tenant's domain suffix, and
-// therefore cannot mint `mail`/userPrincipalName addresses under it, without proving DNS
-// ownership to Microsoft), so both fields are already domain-verified for standard member
-// accounts. The one address shape that ISN'T a real, owned mailbox is a B2B guest's
-// UPN, which Microsoft synthesizes as "user_domain.com#EXT#@resourcetenant.onmicrosoft.com"
-// — rejected below so a guest identity in some other tenant can never be used as an email
-// to look up (and sign in as) an existing Calnode user.
+// Graph /me has no "verified" boolean to check (unlike Google's userinfo, see
+// auth_google.go), so the two fields are trusted differently:
+//
+//   - userPrincipalName must carry one of the signing-in tenant's verified domains (or its
+//     onmicrosoft.com domain), which Entra enforces. The one UPN shape that is NOT an owned
+//     address is a B2B guest's, synthesized as "user_domain.com#EXT#@resourcetenant...",
+//     and it is refused.
+//   - mail is NOT domain-verified: a tenant administrator can set it to any address on an
+//     account without an Exchange mailbox. It is therefore used only when its domain is
+//     the UPN's domain, i.e. a domain this tenant has proved it owns. Otherwise the UPN is
+//     the identity, so another tenant can never name an address it does not own and be
+//     signed in as the Calnode user who holds it.
 func fetchMicrosoftEmail(ctx context.Context, cfg *oauth2.Config, tok *oauth2.Token) (string, error) {
 	resp, err := cfg.Client(ctx, tok).Get("https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName")
 	if err != nil {
@@ -130,16 +132,30 @@ func fetchMicrosoftEmail(ctx context.Context, cfg *oauth2.Config, tok *oauth2.To
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
 		return "", fmt.Errorf("auth: decode graph /me: %w", err)
 	}
-	email := strings.ToLower(strings.TrimSpace(info.Mail))
-	if email == "" {
-		upn := strings.ToLower(strings.TrimSpace(info.UserPrincipalName))
-		if strings.Contains(upn, "#ext#") {
-			return "", fmt.Errorf("auth: Microsoft account is a B2B guest identity, not a verifiable email")
-		}
-		email = upn
+	return microsoftIdentityEmail(info)
+}
+
+// microsoftIdentityEmail applies the trust rule documented on fetchMicrosoftEmail.
+func microsoftIdentityEmail(info microsoftUserInfo) (string, error) {
+	upn := strings.ToLower(strings.TrimSpace(info.UserPrincipalName))
+	if strings.Contains(upn, "#ext#") {
+		return "", fmt.Errorf("auth: Microsoft account is a B2B guest identity, not a verifiable email")
 	}
-	if email == "" {
-		return "", fmt.Errorf("auth: empty email from Microsoft")
+	mail := strings.ToLower(strings.TrimSpace(info.Mail))
+	if mail != "" && upn != "" && emailDomain(mail) != "" && emailDomain(mail) == emailDomain(upn) {
+		return mail, nil
 	}
-	return email, nil
+	if upn == "" {
+		return "", fmt.Errorf("auth: no verifiable email from Microsoft")
+	}
+	return upn, nil
+}
+
+// emailDomain returns the part after the last "@", or "" when there is none.
+func emailDomain(addr string) string {
+	i := strings.LastIndex(addr, "@")
+	if i < 0 || i == len(addr)-1 {
+		return ""
+	}
+	return addr[i+1:]
 }
