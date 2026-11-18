@@ -361,6 +361,9 @@ func (h *Handler) parseAuthRequest(ctx context.Context, get func(string) string)
 	if ar.Method != "S256" {
 		return ar, true, errStr("code_challenge_method must be S256")
 	}
+	if !h.mcpResourceAllowed(ar.Resource) {
+		return ar, true, errStr("resource is not this server's MCP endpoint")
+	}
 	return ar, true, nil
 }
 
