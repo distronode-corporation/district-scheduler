@@ -284,6 +284,9 @@ func (c *Client) getICS(ctx context.Context, rawURL, username, password string) 
 	if err != nil {
 		return "", "", 0, err
 	}
+	if err := c.refusePlainHTTP(req); err != nil {
+		return "", "", 0, err
+	}
 	req.SetBasicAuth(username, password)
 	req.Header.Set("Accept", "text/calendar")
 	resp, err := c.hc.Do(req)
@@ -303,6 +306,9 @@ func (c *Client) getICS(ctx context.Context, rawURL, username, password string) 
 func (c *Client) putICS(ctx context.Context, rawURL, username, password, ics, ifNoneMatch, ifMatch string) (status int, body []byte, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, rawURL, strings.NewReader(ics))
 	if err != nil {
+		return 0, nil, err
+	}
+	if err := c.refusePlainHTTP(req); err != nil {
 		return 0, nil, err
 	}
 	req.SetBasicAuth(username, password)

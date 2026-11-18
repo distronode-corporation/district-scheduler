@@ -23,6 +23,15 @@ import (
 // host — which is the whole point.
 var errCouldNotReach = errors.New("caldav: could not reach the CalDAV server")
 
+// refusePlainHTTP is the WithHTTPSOnly check. Every helper that builds a credentialed
+// request (do, getICS, putICS) calls it before attaching and sending the credentials.
+func (c *Client) refusePlainHTTP(req *http.Request) error {
+	if c.httpsOnly && req.URL.Scheme != "https" {
+		return errCouldNotReach
+	}
+	return nil
+}
+
 // do issues one WebDAV request with HTTP Basic auth and returns the status, body, and any
 // Location header (for manual redirect following). The shared http.Client is configured (in
 // New) NOT to auto-follow redirects, because CalDAV discovery must re-issue the SAME method
@@ -36,8 +45,8 @@ func (c *Client) do(ctx context.Context, method, rawURL, username, password, dep
 	if err != nil {
 		return 0, nil, "", err
 	}
-	if c.httpsOnly && req.URL.Scheme != "https" {
-		return 0, nil, "", errCouldNotReach
+	if err := c.refusePlainHTTP(req); err != nil {
+		return 0, nil, "", err
 	}
 	// Credentials go only on requests the caller authenticated: propfind strips
 	// them on cross-origin redirects, so an empty username means "send none".
