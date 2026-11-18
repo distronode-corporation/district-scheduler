@@ -1,9 +1,12 @@
 package handler_test
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -307,5 +310,53 @@ func TestRevokeAllSessions_namingYourselfIsSelf(t *testing.T) {
 	}
 	if n := countSessions(t, database, "member-1"); n != 0 {
 		t.Errorf("sessions left = %d; want 0 (api-key caller has no current session)", n)
+	}
+}
+
+// An authorization code issued before "sign out everywhere" must not exchange for a fresh
+// token afterwards: revocation would otherwise be undone by a code prepared in advance.
+func TestRevokeAllSessions_invalidatesPendingAuthorizationCodes(t *testing.T) {
+	h, database, ownerKey, ownerID := setupWorkspaceWithDB(t)
+	const verifier = "revoke-verifier-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	sum := sha256.Sum256([]byte(verifier))
+	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
+	seedCode := func(raw string) {
+		t.Helper()
+		now := time.Now().UTC()
+		if _, err := database.Exec(`
+			INSERT INTO oauth_auth_codes (code_hash, client_id, user_id, redirect_uri, code_challenge, scope, resource, expires_at, created_at)
+			VALUES (?, 'client-r', ?, 'https://app.example.test/cb', ?, 'mcp', '', ?, ?)`,
+			sha256HexForTest(raw), ownerID, challenge,
+			now.Add(5*time.Minute).Format(time.RFC3339), now.Format(time.RFC3339Nano)); err != nil {
+			t.Fatalf("seed code: %v", err)
+		}
+	}
+	exchange := func(raw string) int {
+		form := url.Values{
+			"grant_type": {"authorization_code"}, "code": {raw}, "client_id": {"client-r"},
+			"redirect_uri": {"https://app.example.test/cb"}, "code_verifier": {verifier},
+		}
+		req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		h.TokenMCP(rec, req)
+		return rec.Code
+	}
+
+	// Control: a code exchanges normally when nothing was revoked.
+	seedCode("code-before")
+	if got := exchange("code-before"); got != http.StatusOK {
+		t.Fatalf("control exchange = %d; want 200", got)
+	}
+
+	seedCode("code-pending")
+	if rec := revokeAll(h, "", ownerKey, ""); rec.Code != http.StatusOK {
+		t.Fatalf("revoke: %d — %s", rec.Code, rec.Body.String())
+	}
+	if got := exchange("code-pending"); got == http.StatusOK {
+		t.Errorf("a code issued before revocation still exchanged for a token")
+	}
+	if n := countMCPTokens(t, database, ownerID); n != 0 {
+		t.Errorf("mcp tokens after revoke = %d; want 0", n)
 	}
 }

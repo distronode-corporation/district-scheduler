@@ -174,6 +174,15 @@ func (h *Handler) RevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Pending authorization codes too: one issued before the revocation would otherwise
+	// still exchange for a fresh token afterwards.
+	if _, err := tx.ExecContext(r.Context(),
+		`DELETE FROM oauth_auth_codes WHERE user_id = ?`, targetID); err != nil {
+		h.logger.ErrorContext(r.Context(), "revoke sessions: delete oauth codes", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
 	if err := tx.Commit(); err != nil {
 		h.logger.ErrorContext(r.Context(), "revoke sessions: commit", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal error")
