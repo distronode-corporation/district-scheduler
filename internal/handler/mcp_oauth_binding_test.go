@@ -2,6 +2,8 @@ package handler_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -120,5 +122,47 @@ func TestMCP_ResourceIndicatorIsBoundToThisServer(t *testing.T) {
 		if (err == nil) != tc.ok {
 			t.Errorf("%s (resource %q): err = %v; want accepted = %v", tc.raw, tc.resource, err, tc.ok)
 		}
+	}
+}
+
+// The token endpoint applies the same resource rule as authorization: a request naming a
+// resource other than this server's MCP endpoint is refused with invalid_target, and the
+// refusal does not consume the authorization code.
+func TestMCP_TokenRequestResourceIsBoundToThisServer(t *testing.T) {
+	h, database, _, userID := setupWorkspaceWithDB(t)
+	h.SetBaseURL("https://sched.example.test")
+	const verifier = "resource-verifier-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	sum := sha256.Sum256([]byte(verifier))
+	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
+	now := time.Now().UTC()
+	if _, err := database.Exec(`
+		INSERT INTO oauth_auth_codes (code_hash, client_id, user_id, redirect_uri, code_challenge, scope, resource, expires_at, created_at)
+		VALUES (?, 'client-t', ?, 'https://app.example.test/cb', ?, 'mcp', '', ?, ?)`,
+		sha256HexForTest("code-t"), userID, challenge,
+		now.Add(5*time.Minute).Format(time.RFC3339), now.Format(time.RFC3339Nano)); err != nil {
+		t.Fatalf("seed code: %v", err)
+	}
+	exchange := func(resource string) *httptest.ResponseRecorder {
+		form := url.Values{
+			"grant_type": {"authorization_code"}, "code": {"code-t"}, "client_id": {"client-t"},
+			"redirect_uri": {"https://app.example.test/cb"}, "code_verifier": {verifier},
+		}
+		if resource != "" {
+			form.Set("resource", resource)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		h.TokenMCP(rec, req)
+		return rec
+	}
+
+	rec := exchange("https://other.example.test/mcp")
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"invalid_target"`) {
+		t.Fatalf("foreign resource: status %d, body %s; want 400 invalid_target", rec.Code, rec.Body.String())
+	}
+	if rec := exchange("https://sched.example.test/mcp"); rec.Code != http.StatusOK {
+		t.Errorf("this server's resource after a refusal: status %d, body %s; want 200 (the code was not consumed)",
+			rec.Code, rec.Body.String())
 	}
 }

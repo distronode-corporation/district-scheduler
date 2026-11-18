@@ -199,6 +199,12 @@ func (h *Handler) TokenMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.logger.InfoContext(r.Context(), "oauth: token request",
 		"grant_type", r.PostForm.Get("grant_type"), "client_id", r.PostForm.Get("client_id"))
+	// The same rule as at authorization (RFC 8707 section 2.2), checked before either grant
+	// runs, so a refused request does not consume its authorization code.
+	if !h.mcpResourceAllowed(r.PostForm.Get("resource")) {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_target", "resource is not this server's MCP endpoint")
+		return
+	}
 	switch r.PostForm.Get("grant_type") {
 	case "authorization_code":
 		h.tokenAuthCode(w, r)
