@@ -504,3 +504,49 @@ func TestGetNotetakerSettings_singleTenantStillReturnsTheProviderFields(t *testi
 		t.Errorf("stt_base_url = %v; a self-hoster reads their own endpoint back", body["stt_base_url"])
 	}
 }
+
+// The handler's json.Decoder reads only the first JSON value in a body, while the guard
+// parses the whole body. A body with trailing content therefore fails the guard's parse
+// but still decodes in the handler, so the guard must refuse it rather than forward it:
+// otherwise a managed field in the first value reaches the handler unchecked.
+func TestPlatformManagedFields_bodyTheGuardCannotParseIsRefused(t *testing.T) {
+	cases := []struct {
+		name  string
+		route func(h *handler.Handler) http.HandlerFunc
+		path  string
+		body  string
+	}{
+		{"llm model then trailing object", llmPatchRoute, "/v1/settings/llm", `{"model":"someone-elses-model"} {}`},
+		{"llm key then trailing garbage", llmPatchRoute, "/v1/settings/llm", `{"api_key":"sk-attacker"}x`},
+		{"notetaker key then trailing object", notetakerPatchRoute, "/v1/settings/notetaker", `{"stt_api_key":"sk-attacker"}{"enabled":true}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, key, _ := setupWorkspace(t)
+			h.SetEncKey(testGCalKeyHex)
+			h.SetMultiTenant(true)
+
+			rec := httptest.NewRecorder()
+			tc.route(h)(rec, authReq(http.MethodPatch, tc.path, tc.body, key))
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d; want 400 — %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+
+	// And the write must not have happened: the stored model is unchanged.
+	h, key, _ := setupWorkspace(t)
+	h.SetMultiTenant(true)
+	rec := httptest.NewRecorder()
+	llmPatchRoute(h)(rec, authReq(http.MethodPatch, "/v1/settings/llm", `{"model":"someone-elses-model"} {}`, key))
+	h.SetMultiTenant(false)
+	rec = httptest.NewRecorder()
+	h.RequireAuth(h.GetLLMSettings)(rec, authReq(http.MethodGet, "/v1/settings/llm", "", key))
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["model"] == "someone-elses-model" {
+		t.Errorf("model = %v; a body the guard could not parse was applied", body["model"])
+	}
+}
