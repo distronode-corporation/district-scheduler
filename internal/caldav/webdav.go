@@ -36,6 +36,9 @@ func (c *Client) do(ctx context.Context, method, rawURL, username, password, dep
 	if err != nil {
 		return 0, nil, "", err
 	}
+	if c.httpsOnly && req.URL.Scheme != "https" {
+		return 0, nil, "", errCouldNotReach
+	}
 	// Credentials go only on requests the caller authenticated: propfind strips
 	// them on cross-origin redirects, so an empty username means "send none".
 	if username != "" {

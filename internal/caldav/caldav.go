@@ -50,6 +50,9 @@ type Client struct {
 	// literal needs no stub, but a NAME that resolves private cannot be exercised
 	// against real DNS without depending on somebody else's zone.
 	resolve netutil.Resolver
+	// httpsOnly refuses every request whose URL is not https, before anything is sent.
+	// See WithHTTPSOnly.
+	httpsOnly bool
 }
 
 // Option configures a Client at construction.
@@ -73,6 +76,15 @@ type Option func(*Client)
 // becomes strict.
 func WithStrictSSRFGuard(strict bool) Option {
 	return func(c *Client) { c.strictSSRF = strict }
+}
+
+// WithHTTPSOnly makes the client refuse any request to a non-https URL, before it is
+// sent. Checking the URL a person typed is not enough on its own: discovery follows
+// principal and calendar-home hrefs the server returns, and each is a fresh request that
+// carries the app password. A multi-tenant instance sets this (its connect form already
+// accepts only https); a single-tenant one may talk plain http to its own server.
+func WithHTTPSOnly(on bool) Option {
+	return func(c *Client) { c.httpsOnly = on }
 }
 
 // withResolver replaces the strict tier's address lookup. Unexported: it is a test seam,

@@ -267,7 +267,7 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *db.DB, logger *sl
 	// supplied by a TENANT and the private network it can reach is the OPERATOR's — the
 	// pod network, the node's exporters, the media plane — so every dial and every
 	// redirect hop goes through the strict guard webhooks already use.
-	if cdav, err := caldav.New(db, cfg.EncryptionKey, caldav.WithStrictSSRFGuard(cfg.MultiTenant)); err != nil {
+	if cdav, err := caldav.New(db, cfg.EncryptionKey, caldav.WithStrictSSRFGuard(cfg.MultiTenant), caldav.WithHTTPSOnly(cfg.MultiTenant)); err != nil {
 		logger.Error("caldav: init failed", "error", err)
 	} else {
 		calSvc.Register(cdav)
