@@ -108,6 +108,11 @@ func (h *Handler) Claim(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
+	if err := lockBootstrap(r.Context(), tx, h.ws.ID); err != nil {
+		h.logger.ErrorContext(r.Context(), "claim: lock", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
 	var count int
 	if err := tx.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
 		h.logger.ErrorContext(r.Context(), "claim: count users", "error", err)
