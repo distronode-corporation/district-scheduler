@@ -221,7 +221,9 @@ func (c *Client) loadConn(ctx context.Context, userID string, checkConflicts, is
 	if isDestination == 1 {
 		if subCal, ok, sErr := connstore.DestinationCalendarID(ctx, c.db, userID, "caldav", cn.username); sErr != nil {
 			return conn{}, false, sErr
-		} else if ok {
+		} else if ok && sameOrigin(subCal, cn.calURL) {
+			// Same rule as conflictConns: a saved destination on another origin from the
+			// bound collection is not given this account's credentials.
 			cn.calURL = subCal
 		}
 	}
@@ -275,6 +277,13 @@ func (c *Client) conflictConns(ctx context.Context, userID string) ([]conn, erro
 			return nil, err
 		}
 		for _, calURL := range calIDs {
+			// The account's password only goes to the origin of its bound collection. A
+			// saved calendar elsewhere (left over from an earlier connection of the same
+			// username to another server) is skipped rather than sent these credentials.
+			if !sameOrigin(calURL, d.calURL) {
+				c.logger.Warn("caldav: skipping a saved calendar on another origin from the connected calendar", "connected", d.calURL, "calendar", calURL)
+				continue
+			}
 			conns = append(conns, conn{id: d.id, username: d.username, password: string(pw), calURL: calURL})
 		}
 	}

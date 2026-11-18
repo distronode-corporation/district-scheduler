@@ -173,7 +173,9 @@ func (c *Client) eventConn(ctx context.Context, userID, calendarID, eventID stri
 			return conn{}, false, fmt.Errorf("caldav: scan saved calendar: %w", err)
 		}
 		for i := range accounts {
-			if accounts[i].username == email {
+			// collections[0] is the bound collection; a saved one on another origin is
+			// not a server this account's credentials go to.
+			if accounts[i].username == email && sameOrigin(calID, accounts[i].collections[0]) {
 				accounts[i].collections = append(accounts[i].collections, calID)
 			}
 		}
