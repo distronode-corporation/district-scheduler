@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calnode/calnode/internal/db"
 	"github.com/calnode/calnode/internal/dbtest"
 )
 
@@ -48,10 +49,7 @@ func TestDeleteUser_doesNotRemoveAMemberPromotedToOwnerMeanwhile(t *testing.T) {
 		req.SetPathValue("id", "u3")
 		h.RequireAuth(h.DeleteUser)(rec, req)
 	}()
-	select {
-	case <-done:
-	case <-time.After(1500 * time.Millisecond):
-	}
+	waitForBlockedWrite(t, database, done, `DELETE FROM users WHERE id = `)
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
@@ -62,8 +60,8 @@ func TestDeleteUser_doesNotRemoveAMemberPromotedToOwnerMeanwhile(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("the new owner was deleted (status %d): the workspace has no owner", rec.Code)
 	}
-	if rec.Code == http.StatusOK {
-		t.Errorf("got 200 for a delete that removed nothing; want a refusal")
+	if rec.Code != http.StatusConflict {
+		t.Errorf("status %d; want 409 for a delete refused because the member changed", rec.Code)
 	}
 }
 
@@ -94,10 +92,7 @@ func TestTransferOwnership_rollsBackWhenTheTargetVanishesMeanwhile(t *testing.T)
 		req.SetPathValue("id", "u3")
 		h.RequireAuth(h.TransferOwnership)(rec, req)
 	}()
-	select {
-	case <-done:
-	case <-time.After(1500 * time.Millisecond):
-	}
+	waitForBlockedWrite(t, database, done, `UPDATE users SET is_owner = 1, is_admin = 1 WHERE id = `)
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
@@ -108,7 +103,37 @@ func TestTransferOwnership_rollsBackWhenTheTargetVanishesMeanwhile(t *testing.T)
 	if isOwner != 1 {
 		t.Errorf("owner was demoted although the transfer target is gone (status %d)", rec.Code)
 	}
-	if rec.Code == http.StatusOK {
-		t.Errorf("got 200 for a transfer to a user who no longer exists")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status %d; want 404 for a transfer to a user who no longer exists", rec.Code)
 	}
+}
+
+// waitForBlockedWrite returns once a backend is running the handler's contested write,
+// named by the start of its statement text. A backend waiting on the held row lock is
+// also `active`, so this covers both "about to block" and "blocked". It fails the test if
+// the handler finishes first, or if the write is never seen in 30s: either way the
+// interleaving under test was not reached, and the assertions after the commit would
+// pass on ordinary precondition checks alone.
+func waitForBlockedWrite(t *testing.T, database *db.DB, done <-chan struct{}, statementPrefix string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case <-done:
+			t.Fatal("the handler finished before its write reached the held row, so the race was not exercised")
+		default:
+		}
+		var running int
+		if err := database.QueryRow(`
+			SELECT COUNT(*) FROM pg_stat_activity
+			WHERE datname = current_database() AND state = 'active' AND query LIKE ?`,
+			statementPrefix+"%").Scan(&running); err != nil {
+			t.Fatalf("read pg_stat_activity: %v", err)
+		}
+		if running > 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("in 30s no backend ran %q, so the race was not exercised", statementPrefix)
 }
