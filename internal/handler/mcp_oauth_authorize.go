@@ -5,8 +5,10 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -225,32 +227,58 @@ func (h *Handler) tokenAuthCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ⛔ THE CODE IS CONSUMED AND THE TOKEN INSERTED IN ONE TRANSACTION. The DELETE takes the
+	// code's row, and RevokeAllSessions deletes a user's codes before their tokens, so an
+	// overlapping revocation either removes the code first (this then finds nothing) or waits
+	// on the row until this commits and then removes the token issued here. Taking the row
+	// with DELETE ... RETURNING also makes the code single-use under concurrent exchanges.
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "oauth: begin code exchange", "error", err)
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "could not issue token")
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck // a no-op after Commit
+
 	var userID, storedClient, storedRedirect, challenge, scope, resource, expiresAt string
-	err := h.db.QueryRowContext(r.Context(), `
-		SELECT user_id, client_id, redirect_uri, code_challenge, scope, resource, expires_at
-		FROM oauth_auth_codes WHERE code_hash = ?`, hashAPIKey(code)).
+	err = tx.QueryRowContext(r.Context(), `DELETE FROM oauth_auth_codes WHERE code_hash = ?
+		RETURNING user_id, client_id, redirect_uri, code_challenge, scope, resource, expires_at`, hashAPIKey(code)).
 		Scan(&userID, &storedClient, &storedRedirect, &challenge, &scope, &resource, &expiresAt)
 	if err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "unknown or used authorization code")
 		return
 	}
-	// Single use: consume immediately, whatever happens next.
-	_, _ = h.db.ExecContext(r.Context(), `DELETE FROM oauth_auth_codes WHERE code_hash = ?`, hashAPIKey(code))
+	// Single use: the code stays consumed whatever happens next.
+	refuse := func(description string) {
+		if err := tx.Commit(); err != nil {
+			h.logger.ErrorContext(r.Context(), "oauth: consume refused code", "error", err)
+		}
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", description)
+	}
 
 	if exp, _ := time.Parse(time.RFC3339, expiresAt); time.Now().UTC().After(exp) {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "authorization code expired")
+		refuse("authorization code expired")
 		return
 	}
 	if storedClient != clientID || (redirectURI != "" && storedRedirect != redirectURI) {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "client_id or redirect_uri mismatch")
+		refuse("client_id or redirect_uri mismatch")
 		return
 	}
 	if !verifyPKCE(verifier, challenge) {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "PKCE verification failed")
+		refuse("PKCE verification failed")
 		return
 	}
 
-	h.issueAndWriteTokens(w, r, clientID, userID, scope, resource, "")
+	access, refresh, err := h.issueTokens(r.Context(), tx, clientID, userID, scope, resource, "")
+	if err == nil {
+		err = tx.Commit()
+	}
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "oauth: issue token", "error", err)
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "could not issue token")
+		return
+	}
+	writeTokenResponse(w, access, refresh, scope)
 }
 
 func (h *Handler) tokenRefresh(w http.ResponseWriter, r *http.Request) {
@@ -288,39 +316,53 @@ func (h *Handler) tokenRefresh(w http.ResponseWriter, r *http.Request) {
 // response. When replaceID is non-empty the existing row is rotated in place (refresh);
 // otherwise a new row is inserted (authorization_code).
 func (h *Handler) issueAndWriteTokens(w http.ResponseWriter, r *http.Request, clientID, userID, scope, resource, replaceID string) {
-	access := "mcat_" + randHex(32)
-	refresh := "mcrt_" + randHex(32)
-	now := time.Now().UTC()
-	exp := now.Add(mcpAccessTokenTTL)
-
-	var err error
-	if replaceID != "" {
-		_, err = h.db.ExecContext(r.Context(), `
-			UPDATE oauth_access_tokens SET token_hash = ?, refresh_hash = ?, expires_at = ?, last_used_at = NULL
-			WHERE id = ?`, hashAPIKey(access), hashAPIKey(refresh), exp.Format(time.RFC3339), replaceID)
-	} else {
-		// ⛔ workspace_id NAMED, for the same reason as the auth code above: this
-		// runs on a Platform-wrapped route, so an omitted column lands the grant in
-		// the default workspace — where MCP would still verify it (the platform
-		// handle bypasses) but the owning workspace's Connected-apps page could
-		// neither list nor revoke it, and deleting the workspace would not remove it.
-		workspaceID, wsErr := h.workspaceOfUser(r.Context(), userID)
-		if wsErr != nil {
-			h.logger.ErrorContext(r.Context(), "oauth: resolve token owner's workspace", "error", wsErr)
-			writeOAuthError(w, http.StatusInternalServerError, "server_error", "could not issue token")
-			return
-		}
-		_, err = h.db.ExecContext(r.Context(), `
-			INSERT INTO oauth_access_tokens (workspace_id, id, token_hash, refresh_hash, client_id, user_id, scope, resource, expires_at, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			workspaceID, uid.New(), hashAPIKey(access), hashAPIKey(refresh), clientID, userID, scope, resource, exp.Format(time.RFC3339), now.Format(time.RFC3339Nano))
-	}
+	access, refresh, err := h.issueTokens(r.Context(), h.db, clientID, userID, scope, resource, replaceID)
 	if err != nil {
 		h.logger.ErrorContext(r.Context(), "oauth: issue token", "error", err)
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "could not issue token")
 		return
 	}
+	writeTokenResponse(w, access, refresh, scope)
+}
 
+// tokenWriter is what issueTokens writes through: the handle, or a transaction.
+type tokenWriter interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// issueTokens mints and stores a fresh access+refresh token pair through ex. When
+// replaceID is non-empty the existing row is rotated in place (refresh); otherwise a new
+// row is inserted (authorization_code).
+func (h *Handler) issueTokens(ctx context.Context, ex tokenWriter, clientID, userID, scope, resource, replaceID string) (access, refresh string, err error) {
+	access = "mcat_" + randHex(32)
+	refresh = "mcrt_" + randHex(32)
+	now := time.Now().UTC()
+	exp := now.Add(mcpAccessTokenTTL)
+
+	if replaceID != "" {
+		_, err = ex.ExecContext(ctx, `
+			UPDATE oauth_access_tokens SET token_hash = ?, refresh_hash = ?, expires_at = ?, last_used_at = NULL
+			WHERE id = ?`, hashAPIKey(access), hashAPIKey(refresh), exp.Format(time.RFC3339), replaceID)
+		return access, refresh, err
+	}
+	// ⛔ workspace_id NAMED, for the same reason as the auth code above: this
+	// runs on a Platform-wrapped route, so an omitted column lands the grant in
+	// the default workspace — where MCP would still verify it (the platform
+	// handle bypasses) but the owning workspace's Connected-apps page could
+	// neither list nor revoke it, and deleting the workspace would not remove it.
+	workspaceID, wsErr := h.workspaceOfUser(ctx, userID)
+	if wsErr != nil {
+		return "", "", fmt.Errorf("resolve the token owner's workspace: %w", wsErr)
+	}
+	_, err = ex.ExecContext(ctx, `
+		INSERT INTO oauth_access_tokens (workspace_id, id, token_hash, refresh_hash, client_id, user_id, scope, resource, expires_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		workspaceID, uid.New(), hashAPIKey(access), hashAPIKey(refresh), clientID, userID, scope, resource, exp.Format(time.RFC3339), now.Format(time.RFC3339Nano))
+	return access, refresh, err
+}
+
+// writeTokenResponse writes the token endpoint's success body.
+func writeTokenResponse(w http.ResponseWriter, access, refresh, scope string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
