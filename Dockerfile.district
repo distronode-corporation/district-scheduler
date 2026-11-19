@@ -32,7 +32,7 @@
 # CGO off and GOARCH=$TARGETARCH, so neither needs to execute arm64 code. Emulated, the
 # arm64 `pnpm install` hung until the 60-minute job timeout (Dependabot #41 and #32,
 # 2026-10-01 and -02). Only the final stage is per-architecture.
-FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS frontend-builder
 
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 
