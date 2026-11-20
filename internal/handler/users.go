@@ -216,14 +216,21 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback() //nolint:errcheck // a no-op after Commit
-	res, err := tx.ExecContext(r.Context(), `DELETE FROM users WHERE id = ?`, targetID)
+	// The role checks above ran on a read outside this transaction, so they are repeated
+	// in the DELETE itself: a member promoted to owner (or, for a non-owner caller, to
+	// admin) in the meantime is not removed.
+	deleteQuery := `DELETE FROM users WHERE id = ? AND is_owner = 0`
+	if !admin.IsOwner {
+		deleteQuery += ` AND is_admin = 0`
+	}
+	res, err := tx.ExecContext(r.Context(), deleteQuery, targetID)
 	if err != nil {
 		h.logger.ErrorContext(r.Context(), "delete user: exec", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		h.writeError(w, http.StatusNotFound, "user not found")
+		h.writeError(w, http.StatusConflict, "this member changed while being removed; reload and try again")
 		return
 	}
 	if err := deleteAsset(r.Context(), tx, assetAvatar, targetID); err != nil {

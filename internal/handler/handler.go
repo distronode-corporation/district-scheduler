@@ -479,12 +479,15 @@ func (h *Handler) PlatformManagedFields(fields ...string) func(http.HandlerFunc)
 			}
 			r.Body = io.NopCloser(bytes.NewReader(body))
 
-			// An unparseable body is passed through rather than refused: the handler's
-			// own decoder owns that error, and answering 403 for what is really a 400
-			// would send an operator hunting for a permission they do have.
+			// A body this check cannot read as exactly one JSON object is refused here
+			// with the 400 the handler would give, never passed through. The handler's
+			// json.Decoder stops after the first value, so a body with trailing content
+			// fails to parse here yet decodes there: forwarding it would let the handler
+			// apply fields this check never saw. 400 rather than 403, because the
+			// request is malformed, not forbidden.
 			var named map[string]json.RawMessage
 			if json.Unmarshal(body, &named) != nil {
-				next(w, r)
+				h.writeError(w, http.StatusBadRequest, "invalid JSON")
 				return
 			}
 			// ⛔ Case-insensitive, because the handler's decoder is: encoding/json binds

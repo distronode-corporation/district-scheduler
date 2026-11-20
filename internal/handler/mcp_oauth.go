@@ -135,13 +135,17 @@ func (h *Handler) VerifyMCPBearer(ctx context.Context, token string, _ *http.Req
 	// The join is on users.id alone, like the API-key fallback below: user ids are
 	// global primary keys, so it cannot reach a same-id user in another workspace,
 	// and the platform handle has no policy to scope it anyway.
-	var userID, expiresAt string
+	var userID, expiresAt, resource string
 	err := h.platformDB().QueryRowContext(ctx, `
-		SELECT t.user_id, t.expires_at FROM oauth_access_tokens t
+		SELECT t.user_id, t.expires_at, COALESCE(t.resource, '') FROM oauth_access_tokens t
 		JOIN users u ON u.id = t.user_id
 		WHERE t.token_hash = ? AND u.archived_at IS NULL`, hash).
-		Scan(&userID, &expiresAt)
+		Scan(&userID, &expiresAt, &resource)
 	if err == nil {
+		// A token granted for another resource is not a token for this one.
+		if !h.mcpResourceAllowed(resource) {
+			return nil, auth.ErrInvalidToken
+		}
 		exp, _ := time.Parse(time.RFC3339, expiresAt)
 		if time.Now().UTC().After(exp) {
 			return nil, auth.ErrInvalidToken // expired — client should refresh
@@ -301,12 +305,39 @@ func (h *Handler) oauthClientRedirectURIs(ctx context.Context, clientID string) 
 }
 
 // redirectURIAllowed reports whether candidate exactly matches one of the client's
-// registered redirect URIs.
+// registered redirect URIs. Exact string equality (OAuth 2.1 §2.3.1): the path and query
+// of a URI are case-sensitive, so a case-insensitive match could deliver the code to a
+// different resource on the client's host.
 func redirectURIAllowed(registered []string, candidate string) bool {
 	for _, ru := range registered {
-		if strings.EqualFold(ru, candidate) {
+		if ru == candidate {
 			return true
 		}
 	}
 	return false
+}
+
+// mcpResourceAllowed reports whether an RFC 8707 resource indicator names this server's
+// MCP endpoint. Empty means the client sent none, which is accepted. Otherwise it must be
+// this server's origin (scheme and host compared case-insensitively), with the /mcp path
+// or no path, and no query or fragment. Tokens are only ever accepted here, so a grant
+// for any other resource is one a client could hand to that resource, which could then
+// replay it against this one.
+func (h *Handler) mcpResourceAllowed(resource string) bool {
+	if resource == "" {
+		return true
+	}
+	got, err := url.Parse(resource)
+	if err != nil || got.RawQuery != "" || got.Fragment != "" || got.User != nil {
+		return false
+	}
+	base, err := url.Parse(h.baseURL)
+	if err != nil || base.Host == "" {
+		return false
+	}
+	if !strings.EqualFold(got.Scheme, base.Scheme) || !strings.EqualFold(got.Host, base.Host) {
+		return false
+	}
+	p := strings.TrimSuffix(got.Path, "/")
+	return p == "" || p == strings.TrimSuffix(base.Path, "/")+"/mcp"
 }

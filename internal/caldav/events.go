@@ -173,7 +173,9 @@ func (c *Client) eventConn(ctx context.Context, userID, calendarID, eventID stri
 			return conn{}, false, fmt.Errorf("caldav: scan saved calendar: %w", err)
 		}
 		for i := range accounts {
-			if accounts[i].username == email {
+			// collections[0] is the bound collection; a saved one on another origin is
+			// not a server this account's credentials go to.
+			if accounts[i].username == email && sameOrigin(calID, accounts[i].collections[0]) {
 				accounts[i].collections = append(accounts[i].collections, calID)
 			}
 		}
@@ -282,6 +284,9 @@ func (c *Client) getICS(ctx context.Context, rawURL, username, password string) 
 	if err != nil {
 		return "", "", 0, err
 	}
+	if err := c.refusePlainHTTP(req); err != nil {
+		return "", "", 0, err
+	}
 	req.SetBasicAuth(username, password)
 	req.Header.Set("Accept", "text/calendar")
 	resp, err := c.hc.Do(req)
@@ -301,6 +306,9 @@ func (c *Client) getICS(ctx context.Context, rawURL, username, password string) 
 func (c *Client) putICS(ctx context.Context, rawURL, username, password, ics, ifNoneMatch, ifMatch string) (status int, body []byte, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, rawURL, strings.NewReader(ics))
 	if err != nil {
+		return 0, nil, err
+	}
+	if err := c.refusePlainHTTP(req); err != nil {
 		return 0, nil, err
 	}
 	req.SetBasicAuth(username, password)

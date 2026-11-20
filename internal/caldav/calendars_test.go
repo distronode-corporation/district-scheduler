@@ -618,3 +618,42 @@ func TestSameOrigin(t *testing.T) {
 		}
 	}
 }
+
+// A saved calendar on another origin from the account's bound collection (left behind when
+// the same username was connected to a different server before) never receives the
+// account's credentials: not for free/busy, not as the destination of a new event, and not
+// as the owner of an event that lives there.
+func TestSavedCalendarOnAnotherOriginGetsNoCredentials(t *testing.T) {
+	c, fs := connectMultiCal(t)
+	stale := fs.other.URL + "/calendars/user/stolen/"
+	if _, err := c.db.Exec(`
+		INSERT INTO connection_calendars (id, user_id, provider, account_email, calendar_id, name, check_conflicts, is_destination)
+		VALUES ('stale', 'u1', 'caldav', ?, ?, 'Stolen', 1, 1)`, multiCalAccount, stale); err != nil {
+		t.Fatalf("seed stale selection: %v", err)
+	}
+	ctx := context.Background()
+
+	day := time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC)
+	if _, err := c.FreeBusy(ctx, "u1", day, day.Add(24*time.Hour)); err != nil {
+		t.Fatalf("FreeBusy: %v", err)
+	}
+
+	start := time.Date(2026, 6, 26, 15, 0, 0, 0, time.UTC)
+	if _, _, _, err := c.CreateEvent(ctx, "u1", calendar.CreateEventParams{
+		Summary: "Intro call", Start: start, End: start.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("CreateEvent: %v", err)
+	}
+
+	staleEvent := stale + "event-1.ics"
+	if err := c.CancelEvent(ctx, "u1", stale, staleEvent); err == nil {
+		t.Errorf("CancelEvent on another origin succeeded; want it refused before sending anything")
+	}
+
+	fs.mu.Lock()
+	hits := fs.otherHits
+	fs.mu.Unlock()
+	if hits != 0 {
+		t.Errorf("the other origin received %d request(s) carrying this account's credentials; want 0", hits)
+	}
+}

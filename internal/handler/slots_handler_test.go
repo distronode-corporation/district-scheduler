@@ -77,3 +77,42 @@ func TestParseDateRange_malformedDate_returnsNotOk(t *testing.T) {
 		t.Error("parseDateRangeStr returned ok=true for malformed date; want ok=false")
 	}
 }
+
+// A from= far in the past must not make the generator walk every day since then: the
+// start is clamped to yesterday (UTC), so the span stays bounded by the horizon.
+func TestParseDateRangeStr_clampsAPastStart(t *testing.T) {
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	from, to, ok := parseDateRangeStr("1900-01-01", "", now, 60)
+	if !ok {
+		t.Fatal("ok=false; want a clamped range")
+	}
+	if want := time.Date(2026, 6, 14, 0, 0, 0, 0, time.UTC); !from.Equal(want) {
+		t.Errorf("from = %v; want %v (yesterday)", from, want)
+	}
+	if days := int(to.Sub(from).Hours() / 24); days > 61 {
+		t.Errorf("span = %d days; want at most the 60-day horizon plus one", days)
+	}
+
+	// A range wholly in the past collapses to one day rather than being walked.
+	from, to, ok = parseDateRangeStr("1900-01-01", "1900-01-31", now, 60)
+	if !ok || !from.Equal(to) {
+		t.Errorf("past range = %v..%v ok=%v; want a single clamped day", from, to, ok)
+	}
+	// Reversed input is still malformed.
+	if _, _, ok := parseDateRangeStr("2026-06-20", "2026-06-18", now, 60); ok {
+		t.Error("reversed range accepted")
+	}
+}
+
+// The event type's max_future_days is the owner's to set, so it cannot be the only limit
+// on how many days a public slot request walks.
+func TestParseDateRangeStr_capsAHugeConfiguredHorizon(t *testing.T) {
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	from, to, ok := parseDateRangeStr("", "", now, 10_000_000)
+	if !ok {
+		t.Fatal("ok=false")
+	}
+	if days := int(to.Sub(from).Hours() / 24); days != slotHorizonMaxDays {
+		t.Errorf("span = %d days; want the absolute cap %d", days, slotHorizonMaxDays)
+	}
+}

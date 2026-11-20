@@ -1448,6 +1448,12 @@ func (h *Handler) GetBooking(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	// The list's visibility rule (parseBookingListFilter): a member sees only bookings
+	// they host, as primary or assigned host. Anything else reads as not found.
+	if user, _ := userFromContext(r.Context()); !user.IsAdmin && !h.userHostsBooking(r.Context(), user.ID, id) {
+		h.writeError(w, http.StatusNotFound, "booking not found")
+		return
+	}
 	h.writeJSON(w, http.StatusOK, toBookingJSON(b))
 }
 
