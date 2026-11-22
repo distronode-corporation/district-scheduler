@@ -166,3 +166,51 @@ func TestMCP_TokenRequestResourceIsBoundToThisServer(t *testing.T) {
 			rec.Code, rec.Body.String())
 	}
 }
+
+// The code exchange stores its token through the transaction that consumed the code, and
+// takes the token's workspace from that code row. On a pool of one connection (SQLite
+// always; Postgres at DB_MAX_OPEN_CONNS=1) any lookup on another handle while the
+// transaction is open waits for the connection the exchange itself holds, so before the
+// fix this request hung until its deadline and answered 500.
+func TestMCP_CodeExchangeOnAOneConnectionPoolDoesNotWaitOnItself(t *testing.T) {
+	h, database, _, userID := setupWorkspaceWithDB(t)
+	h.SetMultiTenant(true)
+	database.SetMaxOpenConns(1)
+	const verifier = "pool-verifier-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	sum := sha256.Sum256([]byte(verifier))
+	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
+	now := time.Now().UTC()
+	var workspaceID string
+	if err := database.QueryRow(`SELECT workspace_id FROM users WHERE id = ?`, userID).Scan(&workspaceID); err != nil {
+		t.Fatalf("read workspace: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO oauth_auth_codes (workspace_id, code_hash, client_id, user_id, redirect_uri, code_challenge, scope, resource, expires_at, created_at)
+		VALUES (?, ?, 'client-p', ?, 'https://app.example.test/cb', ?, 'mcp', '', ?, ?)`,
+		workspaceID, sha256HexForTest("code-p"), userID, challenge,
+		now.Add(5*time.Minute).Format(time.RFC3339), now.Format(time.RFC3339Nano)); err != nil {
+		t.Fatalf("seed code: %v", err)
+	}
+
+	form := url.Values{
+		"grant_type": {"authorization_code"}, "code": {"code-p"}, "client_id": {"client-p"},
+		"redirect_uri": {"https://app.example.test/cb"}, "code_verifier": {verifier},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(form.Encode())).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	h.TokenMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("exchange: status %d, body %s; want 200", rec.Code, rec.Body.String())
+	}
+	var stored string
+	if err := database.QueryRow(`SELECT workspace_id FROM oauth_access_tokens WHERE user_id = ?`, userID).Scan(&stored); err != nil {
+		t.Fatalf("read token: %v", err)
+	}
+	if stored != workspaceID {
+		t.Errorf("token workspace %q; want the code's %q", stored, workspaceID)
+	}
+}

@@ -8,7 +8,6 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
-	"fmt"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -240,10 +239,14 @@ func (h *Handler) tokenAuthCode(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback() //nolint:errcheck // a no-op after Commit
 
-	var userID, storedClient, storedRedirect, challenge, scope, resource, expiresAt string
+	// The code row also carries the workspace the consent named (Authorize resolved it from
+	// the consenting user), so the token below takes its workspace from the row this
+	// transaction already holds. A separate lookup on the pool would wait for a second
+	// connection, which a pool of one never frees while this transaction is open.
+	var workspaceID, userID, storedClient, storedRedirect, challenge, scope, resource, expiresAt string
 	err = tx.QueryRowContext(r.Context(), `DELETE FROM oauth_auth_codes WHERE code_hash = ?
-		RETURNING user_id, client_id, redirect_uri, code_challenge, scope, resource, expires_at`, hashAPIKey(code)).
-		Scan(&userID, &storedClient, &storedRedirect, &challenge, &scope, &resource, &expiresAt)
+		RETURNING workspace_id, user_id, client_id, redirect_uri, code_challenge, scope, resource, expires_at`, hashAPIKey(code)).
+		Scan(&workspaceID, &userID, &storedClient, &storedRedirect, &challenge, &scope, &resource, &expiresAt)
 	if err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "unknown or used authorization code")
 		return
@@ -269,7 +272,7 @@ func (h *Handler) tokenAuthCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	access, refresh, err := h.issueTokens(r.Context(), tx, clientID, userID, scope, resource, "")
+	access, refresh, err := h.issueTokens(r.Context(), tx, workspaceID, clientID, userID, scope, resource, "")
 	if err == nil {
 		err = tx.Commit()
 	}
@@ -316,7 +319,7 @@ func (h *Handler) tokenRefresh(w http.ResponseWriter, r *http.Request) {
 // response. When replaceID is non-empty the existing row is rotated in place (refresh);
 // otherwise a new row is inserted (authorization_code).
 func (h *Handler) issueAndWriteTokens(w http.ResponseWriter, r *http.Request, clientID, userID, scope, resource, replaceID string) {
-	access, refresh, err := h.issueTokens(r.Context(), h.db, clientID, userID, scope, resource, replaceID)
+	access, refresh, err := h.issueTokens(r.Context(), h.db, "", clientID, userID, scope, resource, replaceID)
 	if err != nil {
 		h.logger.ErrorContext(r.Context(), "oauth: issue token", "error", err)
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "could not issue token")
@@ -331,9 +334,13 @@ type tokenWriter interface {
 }
 
 // issueTokens mints and stores a fresh access+refresh token pair through ex. When
-// replaceID is non-empty the existing row is rotated in place (refresh); otherwise a new
-// row is inserted (authorization_code).
-func (h *Handler) issueTokens(ctx context.Context, ex tokenWriter, clientID, userID, scope, resource, replaceID string) (access, refresh string, err error) {
+// replaceID is non-empty the existing row is rotated in place (refresh) and workspaceID is
+// unused; otherwise a new row is inserted in workspaceID (authorization_code).
+//
+// ⛔ It makes no query of its own. The code exchange calls it inside a transaction, and any
+// read on another handle of the same pool would wait for a connection that a pool of one
+// (SQLite always, Postgres at DB_MAX_OPEN_CONNS=1) never frees.
+func (h *Handler) issueTokens(ctx context.Context, ex tokenWriter, workspaceID, clientID, userID, scope, resource, replaceID string) (access, refresh string, err error) {
 	access = "mcat_" + randHex(32)
 	refresh = "mcrt_" + randHex(32)
 	now := time.Now().UTC()
@@ -350,9 +357,9 @@ func (h *Handler) issueTokens(ctx context.Context, ex tokenWriter, clientID, use
 	// the default workspace — where MCP would still verify it (the platform
 	// handle bypasses) but the owning workspace's Connected-apps page could
 	// neither list nor revoke it, and deleting the workspace would not remove it.
-	workspaceID, wsErr := h.workspaceOfUser(ctx, userID)
-	if wsErr != nil {
-		return "", "", fmt.Errorf("resolve the token owner's workspace: %w", wsErr)
+	// The caller passes the workspace the consumed code row names.
+	if workspaceID == "" {
+		return "", "", errStr("issue token: no workspace for the new grant")
 	}
 	_, err = ex.ExecContext(ctx, `
 		INSERT INTO oauth_access_tokens (workspace_id, id, token_hash, refresh_hash, client_id, user_id, scope, resource, expires_at, created_at)
