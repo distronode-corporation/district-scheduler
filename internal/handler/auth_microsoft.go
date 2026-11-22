@@ -104,6 +104,10 @@ type microsoftUserInfo struct {
 	UserPrincipalName string `json:"userPrincipalName"`
 }
 
+// microsoftGraphBase is the Graph root the sign-in reads. A variable so tests can point it
+// at a local server; nothing else assigns it.
+var microsoftGraphBase = "https://graph.microsoft.com/v1.0"
+
 // fetchMicrosoftEmail reads the signed-in account's email from Graph /me. Lowercased to
 // match stored account emails.
 //
@@ -115,38 +119,83 @@ type microsoftUserInfo struct {
 //     address is a B2B guest's, synthesized as "user_domain.com#EXT#@resourcetenant...",
 //     and it is refused.
 //   - mail is NOT domain-verified: a tenant administrator can set it to any address on an
-//     account without an Exchange mailbox. It is therefore used only when its domain is
-//     the UPN's domain, i.e. a domain this tenant has proved it owns. Otherwise the UPN is
-//     the identity, so another tenant can never name an address it does not own and be
-//     signed in as the Calnode user who holds it.
+//     account without an Exchange mailbox. It is therefore used only when its domain is one
+//     the signing-in tenant has proved it owns: the UPN's domain, or any entry of the
+//     tenant's verifiedDomains (Graph /organization, readable with User.Read). A domain is
+//     verified in at most one tenant, so another tenant can never name an address it does
+//     not own and be signed in as the Calnode user who holds it. Otherwise the UPN is the
+//     identity.
+//
+// The verifiedDomains read is what keeps existing accounts signing in. Accounts are matched
+// by email alone (finishOAuthLogin), and the previous rule preferred mail unconditionally,
+// so an account created with a member's mail on a custom domain (UPN still on
+// onmicrosoft.com, or on a second domain of the same tenant) holds that mail. It is only
+// made when the two domains differ, and a failed read (a personal Microsoft account, which
+// has no organization) falls back to the UPN, never to the unverified mail.
 func fetchMicrosoftEmail(ctx context.Context, cfg *oauth2.Config, tok *oauth2.Token) (string, error) {
-	resp, err := cfg.Client(ctx, tok).Get("https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName")
-	if err != nil {
-		return "", fmt.Errorf("auth: graph /me request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("auth: graph /me status %d", resp.StatusCode)
-	}
+	client := cfg.Client(ctx, tok)
 	var info microsoftUserInfo
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return "", fmt.Errorf("auth: decode graph /me: %w", err)
+	if err := getGraphJSON(client, microsoftGraphBase+"/me?$select=mail,userPrincipalName", &info); err != nil {
+		return "", fmt.Errorf("auth: graph /me: %w", err)
 	}
-	return microsoftIdentityEmail(info)
+	var verified []string
+	mail := strings.ToLower(strings.TrimSpace(info.Mail))
+	upn := strings.ToLower(strings.TrimSpace(info.UserPrincipalName))
+	if mail != "" && emailDomain(mail) != emailDomain(upn) {
+		var org struct {
+			Value []struct {
+				VerifiedDomains []struct {
+					Name string `json:"name"`
+				} `json:"verifiedDomains"`
+			} `json:"value"`
+		}
+		if err := getGraphJSON(client, microsoftGraphBase+"/organization?$select=verifiedDomains", &org); err == nil {
+			for _, o := range org.Value {
+				for _, d := range o.VerifiedDomains {
+					verified = append(verified, d.Name)
+				}
+			}
+		}
+	}
+	return microsoftIdentityEmail(info, verified)
+}
+
+// getGraphJSON GETs url and decodes a 200 response into out.
+func getGraphJSON(client *http.Client, url string, out any) error {
+	resp, err := client.Get(url) // #nosec G107 -- url is microsoftGraphBase plus a constant path
+	if err != nil {
+		return fmt.Errorf("request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck // read-only body
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("decode: %w", err)
+	}
+	return nil
 }
 
 // microsoftIdentityEmail applies the trust rule documented on fetchMicrosoftEmail.
-func microsoftIdentityEmail(info microsoftUserInfo) (string, error) {
+// verifiedDomains are the signing-in tenant's verified domain names.
+func microsoftIdentityEmail(info microsoftUserInfo, verifiedDomains []string) (string, error) {
 	upn := strings.ToLower(strings.TrimSpace(info.UserPrincipalName))
 	if strings.Contains(upn, "#ext#") {
 		return "", fmt.Errorf("auth: Microsoft account is a B2B guest identity, not a verifiable email")
 	}
-	mail := strings.ToLower(strings.TrimSpace(info.Mail))
-	if mail != "" && upn != "" && emailDomain(mail) != "" && emailDomain(mail) == emailDomain(upn) {
-		return mail, nil
-	}
 	if upn == "" {
 		return "", fmt.Errorf("auth: no verifiable email from Microsoft")
+	}
+	mail := strings.ToLower(strings.TrimSpace(info.Mail))
+	if md := emailDomain(mail); md != "" {
+		if md == emailDomain(upn) {
+			return mail, nil
+		}
+		for _, d := range verifiedDomains {
+			if strings.ToLower(strings.TrimSpace(d)) == md {
+				return mail, nil
+			}
+		}
 	}
 	return upn, nil
 }
