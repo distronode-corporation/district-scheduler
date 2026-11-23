@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"testing"
 
 	"github.com/calnode/calnode/internal/db"
@@ -373,5 +374,112 @@ func TestDecryptSecret_roundTrip(t *testing.T) {
 	}
 	if hex.EncodeToString(decrypted) != plainSecret {
 		t.Error("decrypted secret does not match the plain secret shown at creation")
+	}
+}
+
+// deliveryData returns the "data" object of the single delivery queued for webhookID.
+func deliveryData(t *testing.T, e *env, webhookID string) map[string]any {
+	t.Helper()
+	var payload string
+	if err := e.db.QueryRowContext(context.Background(),
+		`SELECT payload FROM webhook_deliveries WHERE webhook_id = ?`, webhookID).
+		Scan(&payload); err != nil {
+		t.Fatalf("read delivery: %v", err)
+	}
+	var env struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(payload), &env); err != nil {
+		t.Fatalf("decode payload %q: %v", payload, err)
+	}
+	if env.Data == nil {
+		t.Fatalf("payload %q has no data object", payload)
+	}
+	return env.Data
+}
+
+func fieldsTestPayload() webhook.BookingPayload {
+	return webhook.BookingPayload{
+		EventTypeSlug: "30-min",
+		HostID:        testUserID,
+		StartAt:       "2026-06-15T09:00:00Z",
+		EndAt:         "2026-06-15T09:30:00Z",
+		Status:        "confirmed",
+		LocationValue: "https://meet.example.com/room?token=abc",
+		CreatedAt:     "2026-06-14T15:00:00Z",
+	}
+}
+
+// A webhook that was never given a field selection (fields IS NULL) keeps the default
+// payload shape.
+func TestEnqueue_unsetFieldsUseDefaultSet(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	wh, _, _ := e.svc.Create(ctx, testUserID, "https://example.com/hook", []string{"booking.created"})
+
+	if err := e.svc.Enqueue(ctx, "booking.created", fieldsTestPayload()); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	data := deliveryData(t, e, wh.ID)
+	for _, k := range []string{"status", "start_at", "location_value", "event_type_slug"} {
+		if _, ok := data[k]; !ok {
+			t.Errorf("default payload is missing %q: %v", k, data)
+		}
+	}
+}
+
+// An explicitly saved empty selection is the owner's choice, not missing configuration:
+// the delivery must carry no booking fields at all.
+func TestEnqueue_explicitEmptyFieldsSendNoData(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	wh, _, _ := e.svc.Create(ctx, testUserID, "https://example.com/hook", []string{"booking.created"})
+	empty := []string{}
+	if err := e.svc.Update(ctx, testUserID, wh.ID, nil, &empty); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	if err := e.svc.Enqueue(ctx, "booking.created", fieldsTestPayload()); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if data := deliveryData(t, e, wh.ID); len(data) != 0 {
+		t.Errorf("explicit empty selection delivered %v; want an empty data object", data)
+	}
+}
+
+// A selection made only of unknown keys sanitises to empty, and is treated the same way.
+func TestEnqueue_unknownOnlyFieldsSendNoData(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	wh, _, _ := e.svc.Create(ctx, testUserID, "https://example.com/hook", []string{"booking.created"})
+	unknown := []string{"not_a_field"}
+	if err := e.svc.Update(ctx, testUserID, wh.ID, nil, &unknown); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	if err := e.svc.Enqueue(ctx, "booking.created", fieldsTestPayload()); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if data := deliveryData(t, e, wh.ID); len(data) != 0 {
+		t.Errorf("unknown-only selection delivered %v; want an empty data object", data)
+	}
+}
+
+// A non-empty selection is honoured exactly.
+func TestEnqueue_selectedFieldsOnly(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	wh, _, _ := e.svc.Create(ctx, testUserID, "https://example.com/hook", []string{"booking.created"})
+	sel := []string{webhook.FieldStatus}
+	if err := e.svc.Update(ctx, testUserID, wh.ID, nil, &sel); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	if err := e.svc.Enqueue(ctx, "booking.created", fieldsTestPayload()); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	data := deliveryData(t, e, wh.ID)
+	if len(data) != 1 || data["status"] != "confirmed" {
+		t.Errorf("selection [status] delivered %v; want only status", data)
 	}
 }

@@ -546,8 +546,10 @@ func (s *Service) Enqueue(ctx context.Context, event string, p BookingPayload) e
 	defer tx.Rollback() //nolint:errcheck
 
 	for _, wh := range matching {
+		// Only an unconfigured webhook (fields IS NULL) gets the default set. A saved empty
+		// selection decodes to a non-nil empty slice and is honoured as "no fields".
 		fieldset := wh.fields
-		if len(fieldset) == 0 {
+		if fieldset == nil {
 			fieldset = defaultFields
 		}
 		envelope := map[string]any{
