@@ -77,6 +77,11 @@ func (h *Handler) Setup(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
+	if err := lockBootstrap(r.Context(), tx, h.ws.ID); err != nil {
+		h.logger.ErrorContext(r.Context(), "setup: lock", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
 	var count int
 	if err := tx.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
 		h.logger.ErrorContext(r.Context(), "setup: count users", "error", err)

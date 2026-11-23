@@ -110,10 +110,17 @@ func (h *Handler) TransferOwnership(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	if _, err := tx.ExecContext(r.Context(),
-		`UPDATE users SET is_owner = 1, is_admin = 1 WHERE id = ?`, targetID); err != nil {
+	promoted, err := tx.ExecContext(r.Context(),
+		`UPDATE users SET is_owner = 1, is_admin = 1 WHERE id = ?`, targetID)
+	if err != nil {
 		h.logger.ErrorContext(r.Context(), "transfer ownership: promote", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	// The target was read above, but it can be removed before this UPDATE runs. Committing
+	// then would leave the workspace with no owner at all, so roll back instead.
+	if n, _ := promoted.RowsAffected(); n != 1 {
+		h.writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
 	if err := tx.Commit(); err != nil {

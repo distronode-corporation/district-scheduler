@@ -577,3 +577,27 @@ func TestSSOHandoff_defaultsToServingTheConsole(t *testing.T) {
 		t.Errorf("Location = %q; want /admin/", loc)
 	}
 }
+
+// Validation accepts a token for ssoClockSkew past its exp, so its nonce must outlive
+// that window: the worker's cleanup (expires_at < now) running in between must not let
+// the same token be redeemed twice.
+func TestSSOHandoff_replayStillRejectedAfterCleanupWithinTheSkewWindow(t *testing.T) {
+	h, database := newSSOHandler(t)
+	claims := ssoClaimSet()
+	now := time.Now().Unix()
+	claims["iat"] = now - 40
+	claims["exp"] = now - 10 // past, but inside the 30s skew the verifier allows
+	token := ssoToken(t, ssoSecret, claims)
+
+	if rec := doSSO(h, "/v1/auth/sso?token="+token); rec.Code != http.StatusFound {
+		t.Fatalf("first use: status = %d — %s", rec.Code, rec.Body.String())
+	}
+	// The worker's purge, verbatim.
+	if _, err := database.Exec(`DELETE FROM sso_nonces WHERE expires_at < ?`,
+		time.Now().UTC().Format(time.RFC3339)); err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	if rec := doSSO(h, "/v1/auth/sso?token="+token); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("replay after purge: status = %d; want 401", rec.Code)
+	}
+}

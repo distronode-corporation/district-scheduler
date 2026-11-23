@@ -215,7 +215,9 @@ func (h *Handler) SSOHandoff(w http.ResponseWriter, r *http.Request) {
 	// request could interleave with.
 	if _, err := h.db.ExecContext(r.Context(),
 		`INSERT INTO sso_nonces (jti, expires_at) VALUES (?, ?)`,
-		claims.JTI, time.Unix(claims.Exp, 0).UTC().Format(time.RFC3339)); err != nil {
+		// Kept until the end of the window validation accepts the token in (exp plus the
+		// clock skew), or cleanup could drop the nonce while the token still verifies.
+		claims.JTI, time.Unix(claims.Exp, 0).Add(ssoClockSkew).UTC().Format(time.RFC3339)); err != nil {
 		if db.IsUniqueViolation(err) {
 			h.logger.WarnContext(r.Context(), "sso: token replayed", "iss", claims.Iss)
 			h.writeError(w, http.StatusUnauthorized, "jti has already been used")
